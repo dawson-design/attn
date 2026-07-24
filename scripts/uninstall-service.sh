@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 #
 # Remove the notification-watch LaunchAgent. Leaves .local-state/ (your
-# acks/mutes, cache, logs) untouched.
+# acks, cache, logs) untouched.
 #
 set -euo pipefail
 

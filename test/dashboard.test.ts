@@ -490,25 +490,6 @@ describe("dashboard service local-state actions", () => {
 
     service.dispose();
   });
-
-  test("muting a repo mutes its items and unmuting restores them", async () => {
-    const config = await tempConfig();
-    const { runner } = makeRunner(() => [rawPr()]);
-    const service = await createService({ config, runner, discoverRepos: async () => new Map(), startPolling: false });
-    await service.refresh();
-
-    await service.muteRepo(REPO, true);
-
-    expect(service.getSnapshot().mutedRepos).toContain(REPO);
-    expect(service.getSnapshot().items.find((item) => item.id === PR_ID)?.lifecycle).toBe("muted");
-
-    await service.muteRepo(REPO, false);
-
-    expect(service.getSnapshot().mutedRepos).not.toContain(REPO);
-    expect(service.getSnapshot().items.find((item) => item.id === PR_ID)?.lifecycle).not.toBe("muted");
-
-    service.dispose();
-  });
 });
 
 describe("dashboard service item details and review prompt", () => {

@@ -46,7 +46,6 @@ function isRateLimitError(message: string): boolean {
 
 export function visibleItems(items: WatchItem[], includeAcknowledged = false): WatchItem[] {
   return [...items]
-    .filter((item) => item.lifecycle !== "muted")
     .filter((item) => includeAcknowledged || item.lifecycle !== "acknowledged")
     .sort((a, b) => {
       const rankDiff = kindRank(a.kind) - kindRank(b.kind);
@@ -115,7 +114,6 @@ export async function refreshWatcherData(input: RefreshInput): Promise<RefreshOu
         generatedAt: now.toISOString(),
         host: input.config.host,
         items: applyCurrentLifecycle(input.state, input.previousItems ?? [], now.toISOString()),
-        mutedRepos: input.state.mutedRepos,
         // Keep errors unrelated to the backoff; replace only the previous
         // backoff notice so it does not accumulate on every skipped refresh.
         errors: [
@@ -156,7 +154,6 @@ export async function refreshWatcherData(input: RefreshInput): Promise<RefreshOu
       generatedAt: now.toISOString(),
       host: input.config.host,
       items,
-      mutedRepos: input.state.mutedRepos,
       errors: result.errors,
       cacheStatus: result.cacheStatus,
       lastSuccessfulFetchAt: result.lastSuccessfulFetchAt || input.cache.lastSuccessfulFetchAt,
@@ -176,8 +173,7 @@ export function applyCurrentLifecycle(
 function lifecycleRank(lifecycle: WatchItem["lifecycle"]): number {
   if (lifecycle === "new" || lifecycle === "unread") return 0;
   if (lifecycle === "active") return 1;
-  if (lifecycle === "acknowledged") return 2;
-  return 3;
+  return 2;
 }
 
 function kindRank(kind: WatchItem["kind"]): number {

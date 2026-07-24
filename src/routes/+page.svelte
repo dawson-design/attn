@@ -1,7 +1,6 @@
 <script lang="ts">
   import { onMount } from "svelte";
   import BellIcon from "@lucide/svelte/icons/bell";
-  import BellOffIcon from "@lucide/svelte/icons/bell-off";
   import BotIcon from "@lucide/svelte/icons/bot";
   import SquareTerminalIcon from "@lucide/svelte/icons/square-terminal";
   import CircleCheckIcon from "@lucide/svelte/icons/circle-check";
@@ -29,7 +28,6 @@
 
   let items = $state<WatchItem[]>(initialSnapshot.items || []);
   let errors = $state<string[]>(initialSnapshot.errors || []);
-  let mutedRepos = $state<string[]>(initialSnapshot.mutedRepos || []);
   let connection = $state("connecting");
   let lastUpdated = $state(formatHeaderTime(initialSnapshot.generatedAt));
   let cacheStatus = $state<Snapshot["cacheStatus"]>(initialSnapshot.cacheStatus || "stale");
@@ -38,7 +36,6 @@
   let query = $state("");
   let kind = $state("");
   let showAcknowledged = $state(false);
-  let showMuted = $state(false);
   let pageSizeChoice = $state("25");
   let currentPage = $state(1);
   let prefsLoaded = $state(false);
@@ -53,7 +50,6 @@
   let kindValue = $derived(kind);
   let filteredItems = $derived(
     sortedItems(items).filter((item) => {
-      if (!showMuted && item.lifecycle === "muted") return false;
       if (!showAcknowledged && item.lifecycle === "acknowledged") return false;
       const normalizedQuery = query.trim().toLowerCase();
       if (kindValue && item.kind !== kindValue) return false;
@@ -61,7 +57,6 @@
       return [item.repo, item.title, item.actor, item.summary].join(" ").toLowerCase().includes(normalizedQuery);
     }),
   );
-  let mutedCount = $derived(items.filter((item) => item.lifecycle === "muted").length);
   let acknowledgedCount = $derived(items.filter((item) => item.lifecycle === "acknowledged").length);
   let notificationLabel = $derived(getNotificationLabel(notificationPermission));
   let cacheLabel = $derived(getCacheLabel(refreshing, cacheStatus, nextRefreshAllowedAt));
@@ -78,7 +73,7 @@
   // touched by the user, so this never yanks the view back to page 1 when new
   // items arrive over SSE.
   $effect(() => {
-    void [query, kindValue, showMuted, showAcknowledged, pageSize];
+    void [query, kindValue, showAcknowledged, pageSize];
     currentPage = 1;
   });
   // When a live update shrinks the list, clamp the page rather than stranding
@@ -147,7 +142,6 @@
   function applySnapshot(snapshot: Snapshot): void {
     items = snapshot.items || [];
     errors = Array.from(new Set(snapshot.errors || []));
-    mutedRepos = snapshot.mutedRepos || [];
     cacheStatus = snapshot.cacheStatus || "stale";
     nextRefreshAllowedAt = snapshot.nextRefreshAllowedAt || "";
     lastUpdated = formatHeaderTime(snapshot.generatedAt);
@@ -204,7 +198,7 @@
       const response = await fetch("/api/refresh", { method: "POST" });
       if (!response.ok) {
         // A failed refresh returns an error body, not a Snapshot. Applying it
-        // would coerce items/errors/mutedRepos to empty and blank the dashboard,
+        // would coerce items/errors to empty and blank the dashboard,
         // so surface the failure and leave the current snapshot in place.
         const body = (await response.json().catch(() => ({}))) as { error?: string };
         reportError(body.error || `Refresh failed (${response.status}).`);
@@ -341,22 +335,6 @@
     }
   }
 
-  async function setRepoMuted(repo: string, muted: boolean): Promise<void> {
-    try {
-      const response = await fetch("/api/mute-repo", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ repo, muted }),
-      });
-      if (!response.ok) {
-        const body = (await response.json().catch(() => ({}))) as { error?: string };
-        reportError(body.error || "Mute failed.");
-      }
-    } catch (error) {
-      reportError(error instanceof Error ? error.message : String(error));
-    }
-  }
-
   async function enableNotifications(): Promise<void> {
     if (!("Notification" in window)) return;
     notificationPermission = await Notification.requestPermission();
@@ -423,9 +401,6 @@
       <h1 class="m-0 text-base font-semibold">GHE Notification Watch</h1>
       <p class="mt-0.5 text-xs text-muted-foreground">
         {connection} · {filteredItems.length} visible / {items.length} tracked · {lastUpdated} · {cacheLabel}
-        {#if mutedRepos.length}
-          · {mutedRepos.length} muted repos
-        {/if}
       </p>
     </div>
     <div class="flex flex-wrap justify-end gap-2">
@@ -470,10 +445,6 @@
         <label class="flex items-center gap-2">
           <input class="size-4 rounded border-border bg-background" type="checkbox" bind:checked={showAcknowledged} />
           Show acknowledged ({acknowledgedCount})
-        </label>
-        <label class="flex items-center gap-2">
-          <input class="size-4 rounded border-border bg-background" type="checkbox" bind:checked={showMuted} />
-          Show muted ({mutedCount})
         </label>
       </div>
     </section>
@@ -716,13 +687,6 @@
         {/each}
       </div>
     {/if}
-
-    <div class="flex flex-wrap gap-2">
-      <Button size="xs" variant="outline" onclick={() => setRepoMuted(item.repo, !mutedRepos.includes(item.repo))}>
-        <BellOffIcon data-icon="inline-start" />
-        {mutedRepos.includes(item.repo) ? `Unmute ${item.repoName}` : `Mute ${item.repoName}`}
-      </Button>
-    </div>
 
     {#if !detailState || detailState.status === "loading"}
       <p class="m-0 text-muted-foreground">Loading details...</p>

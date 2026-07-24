@@ -1,7 +1,7 @@
 export type ItemKind =
   "pr_review_request" | "pr_comment" | "pr_review_comment" | "issue_assigned" | "issue_mention" | "issue_comment";
 
-export type Lifecycle = "new" | "unread" | "active" | "acknowledged" | "muted";
+export type Lifecycle = "new" | "unread" | "active" | "acknowledged";
 
 export interface Config {
   host: string;
@@ -95,7 +95,6 @@ export interface StoredItem {
 export interface AppState {
   version: 1;
   items: Record<string, StoredItem>;
-  mutedRepos: string[];
   updatedAt: string;
 }
 
@@ -103,7 +102,6 @@ export interface Snapshot {
   generatedAt: string;
   host: string;
   items: WatchItem[];
-  mutedRepos: string[];
   errors: string[];
   cacheStatus: "fresh" | "partial" | "stale" | "rate_limited";
   lastSuccessfulFetchAt?: string;

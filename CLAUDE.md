@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What this is
 
-A local, **read-only** GitHub notification dashboard for PR-review and issue triage. It works against **any** GitHub host — public GitHub or a GitHub Enterprise deployment — selected via `GHE_WATCH_HOST` (default `github.com`). It surfaces PRs where you're a review-requested reviewer plus issues you're assigned to or mentioned in, summarizes each, and lets you acknowledge / mute locally. It runs on your machine, binds to `127.0.0.1` only, and never sends GitHub tokens to the browser.
+A local, **read-only** GitHub notification dashboard for PR-review and issue triage. It works against **any** GitHub host — public GitHub or a GitHub Enterprise deployment — selected via `GHE_WATCH_HOST` (default `github.com`). It surfaces PRs where you're a review-requested reviewer plus issues you're assigned to or mentioned in, summarizes each, and lets you acknowledge them locally. It runs on your machine, binds to `127.0.0.1` only, and never sends GitHub tokens to the browser.
 
 All deployment-specific behavior is environment-driven (`GHE_WATCH_*`, see Configuration); there are no organization-specific defaults baked into the code. Point it at a host and set repo/label filters in your local `.env`.
 
@@ -44,7 +44,7 @@ The service owns only persistence, in-flight refresh coalescing, and the broadca
 The SvelteKit routes are thin wrappers over this service:
 
 - `src/routes/+page.server.ts` `load()` returns the current snapshot for first paint.
-- `src/routes/api/{ack,mute-repo,refresh,items,item-details}/+server.ts` map 1:1 to service methods.
+- `src/routes/api/{ack,refresh,items,item-details}/+server.ts` map 1:1 to service methods.
 - `src/routes/api/codex-review/+server.ts` returns an agent review prompt for a PR (see local review below).
 - `src/routes/events/+server.ts` is the SSE stream; `addClient`/`removeClient` manage subscribers.
 
@@ -57,17 +57,17 @@ The SvelteKit routes are thin wrappers over this service:
 3. Summarizes via `src/summary.ts` — `summarize` uses the first sentence of the body when available, otherwise the title.
 4. Produces `WatchItem`s, including synthetic per-comment items (`pr_comment` / `issue_comment`). Issues that match both the assigned and mentions searches are deduplicated to a single item.
 
-Then `reconcileItems` (`src/state.ts`) merges fetched items against persisted user state to assign each a `lifecycle` (`new`/`unread`/`active`/`muted`), dropping items GitHub no longer returns, and writes back `StoredItem` records. The result is assembled into a `Snapshot` and broadcast.
+Then `reconcileItems` (`src/state.ts`) merges fetched items against persisted user state to assign each a `lifecycle` (`new`/`unread`/`active`/`acknowledged`), dropping items GitHub no longer returns, and writes back `StoredItem` records. The result is assembled into a `Snapshot` and broadcast.
 
 `src/types.ts` is the contract for all of this (`Config`, `RawSearchItem`, `WatchItem`, `StoredItem`, `AppState`, `Snapshot`) — read it first when touching the pipeline.
 
 ### Three persistence files (all under `.local-state/`, git-ignored)
 
-- **`state.json`** (`AppState`) — user intent: per-item `acknowledgedAt` and `mutedRepos`. This is the source of truth for lifecycle. Managed by `src/state.ts`. If the file exists but holds invalid JSON, `loadState` moves it aside to `state.json.corrupt` and starts fresh rather than silently overwriting it (and refuses to start if it cannot move it).
+- **`state.json`** (`AppState`) — user intent: per-item `acknowledgedAt`. This is the source of truth for lifecycle. Managed by `src/state.ts`. If the file exists but holds invalid JSON, `loadState` moves it aside to `state.json.corrupt` and starts fresh rather than silently overwriting it (and refuses to start if it cannot move it).
 - **`github-cache.json`** (`GithubCache`) — TTL'd raw `gh` responses (`src/github-cache.ts`). Searches and views cache separately with independent TTLs; views are keyed and invalidated on the item's `updatedAt`. Also stores `rateLimitUntil` for backoff. The file records the `host` it was fetched from, and `loadGithubCache(path, host)` discards a cache belonging to a different host — otherwise changing `GHE_WATCH_HOST` serves the previous host's repos and URLs as `fresh` data for the new one. Keep that check when touching cache loading.
 - **`snapshot.json`** (`Snapshot`) — the last rendered dashboard, so a cold start shows data immediately (`cacheStatus` downgraded to `stale`).
 
-After local actions (ack/mute) the service mutates `state.json` and applies the change directly onto the in-memory snapshot (`applyLocalStateToSnapshot`) rather than re-fetching. Both that fast path and `reconcileItems` derive lifecycle through the shared `snapshotLifecycle` helper in `src/state.ts`, so they cannot drift apart — change lifecycle rules there.
+After a local acknowledge the service mutates `state.json` and applies the change directly onto the in-memory snapshot (`applyLocalStateToSnapshot`) rather than re-fetching. Both that fast path and `reconcileItems` derive lifecycle through the shared `snapshotLifecycle` helper in `src/state.ts`, so they cannot drift apart — change lifecycle rules there.
 
 ### Caching, rate-limit, and `cacheStatus`
 

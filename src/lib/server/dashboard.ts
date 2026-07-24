@@ -9,12 +9,12 @@ import { fetchItemDetails } from "../../item-details";
 import { buildAgentReviewPrompt } from "../../local-review";
 import { loadSnapshot, saveSnapshot } from "../../snapshot-cache";
 import { buildReviewTerminalScript, terminalScriptFileName } from "../../terminal-launch";
-import { acknowledge, loadState, muteRepo, saveState, snapshotLifecycle, unacknowledge, unmuteRepo } from "../../state";
+import { acknowledge, loadState, saveState, snapshotLifecycle, unacknowledge } from "../../state";
 import type { AppState, Config, Snapshot, WatchItemDetails } from "../../types";
 import { discoverWorkspaceRepos } from "../../workspace";
 
 type Client = ReadableStreamDefaultController<string>;
-const SERVICE_VERSION = 13;
+const SERVICE_VERSION = 14;
 
 /**
  * Seams for tests. Production passes nothing and gets the real wiring: local
@@ -56,7 +56,6 @@ interface DashboardService {
   addClient(client: Client): void;
   removeClient(client: Client): void;
   acknowledge(ids: string[], acknowledged: boolean): Promise<void>;
-  muteRepo(repo: string, muted: boolean): Promise<void>;
   getItemDetails(id: string): Promise<{ ok: true; details: WatchItemDetails }>;
   buildAgentReviewPrompt(id: string): Promise<{ ok: true; prompt: string }>;
   openReviewTerminal(id: string): Promise<{ ok: true }>;
@@ -90,7 +89,6 @@ export async function createService(deps: ServiceDeps = {}): Promise<DashboardSe
         generatedAt: new Date().toISOString(),
         host: config.host,
         items: [],
-        mutedRepos: state.mutedRepos,
         errors: [],
         cacheStatus: "stale",
         lastSuccessfulFetchAt: githubCache.lastSuccessfulFetchAt,
@@ -117,7 +115,6 @@ export async function createService(deps: ServiceDeps = {}): Promise<DashboardSe
     snapshot = {
       ...snapshot,
       generatedAt: now,
-      mutedRepos: state.mutedRepos,
       items: snapshot.items.map((item) => ({ ...item, lifecycle: snapshotLifecycle(state, item, now) })),
     };
     await saveSnapshot(config.snapshotFile, snapshot);
@@ -196,12 +193,6 @@ export async function createService(deps: ServiceDeps = {}): Promise<DashboardSe
     acknowledge: async (ids, acknowledged) => {
       if (acknowledged) acknowledge(state, ids);
       else unacknowledge(state, ids);
-      await saveState(config.stateFile, state);
-      await applyLocalStateToSnapshot();
-    },
-    muteRepo: async (repo, muted) => {
-      if (muted) muteRepo(state, repo);
-      else unmuteRepo(state, repo);
       await saveState(config.stateFile, state);
       await applyLocalStateToSnapshot();
     },

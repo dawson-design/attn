@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { acknowledge, emptyState, loadState, reconcileItems, snapshotLifecycle, unacknowledge } from "../src/state";
+import { acknowledge, emptyState, loadState, reconcileItems, unacknowledge } from "../src/state";
 import type { WatchItem } from "../src/types";
 
 function item(updatedAt: string): WatchItem {
@@ -92,20 +92,11 @@ describe("item lifecycle", () => {
   });
 });
 
-describe("snapshotLifecycle", () => {
-  test("muted repos are marked muted", () => {
-    const state = emptyState();
-    state.mutedRepos.push("acme/schemas");
-    expect(snapshotLifecycle(state, item("2026-06-01T20:00:00Z"), "2026-06-01T20:30:00Z")).toBe("muted");
-  });
-});
-
 describe("loadState", () => {
   test("returns empty state when the file is absent", async () => {
     const dir = await mkdtemp(join(tmpdir(), "ghe-state-"));
     const loaded = await loadState(join(dir, "does-not-exist.json"));
     expect(loaded.items).toEqual({});
-    expect(loaded.mutedRepos).toEqual([]);
   });
 
   test("preserves corrupt state in a backup rather than silently overwriting it", async () => {

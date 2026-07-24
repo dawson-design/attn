@@ -6,7 +6,6 @@ export function emptyState(): AppState {
   return {
     version: 1,
     items: {},
-    mutedRepos: [],
     updatedAt: new Date().toISOString(),
   };
 }
@@ -24,7 +23,7 @@ export async function loadState(path: string): Promise<AppState> {
     return JSON.parse(raw) as AppState;
   } catch (error) {
     // The file exists but is not valid JSON. Never silently overwrite a user's
-    // acks/mutes: move the bad file aside so it stays recoverable, and
+    // acks: move the bad file aside so it stays recoverable, and
     // only then start fresh. If we cannot move it, refuse rather than clobber.
     const detail = error instanceof Error ? error.message : String(error);
     const backup = `${path}.corrupt`;
@@ -76,7 +75,6 @@ function lifecycleFor(item: WatchItem, stored: StoredItem | undefined, _now: str
  * path (`applyLocalStateToSnapshot`) call this so they cannot drift apart.
  */
 export function snapshotLifecycle(state: AppState, item: WatchItem, now = new Date().toISOString()): Lifecycle {
-  if (state.mutedRepos.includes(item.repo)) return "muted";
   return lifecycleFor(item, state.items[item.id], now);
 }
 
@@ -137,12 +135,4 @@ export function unacknowledge(state: AppState, ids: string[]): void {
   for (const id of ids) {
     if (state.items[id]) delete state.items[id].acknowledgedAt;
   }
-}
-
-export function muteRepo(state: AppState, repo: string): void {
-  if (!state.mutedRepos.includes(repo)) state.mutedRepos.push(repo);
-}
-
-export function unmuteRepo(state: AppState, repo: string): void {
-  state.mutedRepos = state.mutedRepos.filter((item) => item !== repo);
 }

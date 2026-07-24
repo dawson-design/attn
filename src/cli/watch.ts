@@ -235,7 +235,7 @@ async function acknowledgeSelected(options: CliOptions): Promise<void> {
 async function acknowledgeItems(ids: string[], options: CliOptions): Promise<void> {
   acknowledge(state, ids);
   await saveState(config.stateFile, state);
-  snapshot = { ...snapshot, items: applyCurrentLifecycle(state, snapshot.items), mutedRepos: state.mutedRepos };
+  snapshot = { ...snapshot, items: applyCurrentLifecycle(state, snapshot.items) };
   await saveSnapshot(config.snapshotFile, snapshot);
   clampSelection(options);
   status = "Acknowledged selected item.";
@@ -480,7 +480,6 @@ function emptySnapshot(config: Config): Snapshot {
     generatedAt: new Date().toISOString(),
     host: config.host,
     items: [],
-    mutedRepos: [],
     errors: [],
     cacheStatus: "stale",
   };
