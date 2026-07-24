@@ -1,0 +1,57 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  LaunchAgent TEMPLATE for the notification-watch backend service.
+
+  Do not edit the installed copy by hand. install-service.sh renders this
+  template (filling the __PLACEHOLDER__ values from your machine and env) and
+  writes the result into ~/Library/LaunchAgents/.
+
+  Paths are absolute on purpose: launchd does NOT inherit your shell PATH. The
+  PATH entry in EnvironmentVariables is what lets the spawned `gh` (and bun)
+  resolve — without it the service starts but every gh call fails and the
+  dashboard shows only stale/empty data.
+-->
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>__LABEL__</string>
+
+    <key>ProgramArguments</key>
+    <array>
+        <string>__BUN__</string>
+        <string>__APP_DIR__/build/index.js</string>
+    </array>
+
+    <key>WorkingDirectory</key>
+    <string>__APP_DIR__</string>
+
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>HOST</key>
+        <string>127.0.0.1</string>
+        <key>PORT</key>
+        <string>__PORT__</string>
+        <!-- Critical: makes gh + bun resolvable to the launchd-spawned process. -->
+        <key>PATH</key>
+        <string>__PATH__</string>
+        <!-- Target GitHub (Enterprise) host queried via gh. -->
+        <key>GHE_WATCH_HOST</key>
+        <string>__HOST__</string>
+    </dict>
+
+    <key>RunAtLoad</key>
+    <true/>
+
+    <key>KeepAlive</key>
+    <true/>
+
+    <key>ThrottleInterval</key>
+    <integer>10</integer>
+
+    <key>StandardOutPath</key>
+    <string>__APP_DIR__/.local-state/logs/service.out.log</string>
+    <key>StandardErrorPath</key>
+    <string>__APP_DIR__/.local-state/logs/service.err.log</string>
+</dict>
+</plist>

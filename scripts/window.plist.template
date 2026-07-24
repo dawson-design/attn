@@ -1,0 +1,40 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  LaunchAgent TEMPLATE for the dashboard *window* login item.
+
+  Rendered and installed by install-window-launcher.sh; do not edit the
+  installed copy by hand. It runs open-dashboard-window.sh once at login to
+  open a dedicated Chrome app window pointed at the dashboard, so the page's
+  client-side Notification code stays connected in the background.
+
+  Deliberately has no KeepAlive: closing the window should not force it back
+  open; log back in (or re-run install-window-launcher.sh) to reopen it.
+-->
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>__LABEL__</string>
+
+    <key>ProgramArguments</key>
+    <array>
+        <string>__APP_DIR__/scripts/open-dashboard-window.sh</string>
+    </array>
+
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>PATH</key>
+        <string>__PATH__</string>
+        <key>GHE_WATCH_PORT</key>
+        <string>__PORT__</string>
+    </dict>
+
+    <key>RunAtLoad</key>
+    <true/>
+
+    <key>StandardOutPath</key>
+    <string>__APP_DIR__/.local-state/logs/window.out.log</string>
+    <key>StandardErrorPath</key>
+    <string>__APP_DIR__/.local-state/logs/window.err.log</string>
+</dict>
+</plist>

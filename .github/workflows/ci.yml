@@ -1,0 +1,52 @@
+name: CI
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+
+# A second push to the same branch cancels the older run; only the tip matters.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      # --frozen-lockfile: CI installs exactly what bun.lock pins and fails if
+      # the lockfile is out of date, rather than silently resolving new versions.
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      # The steps below are listed individually rather than as `bun run ci` so a
+      # failure names the gate that broke. They are the same commands, in the
+      # same order, that `bun run ci` runs locally.
+      - name: Format
+        run: bun run format:check
+
+      - name: Lint
+        run: bun run lint
+
+      # shellcheck is preinstalled on ubuntu-latest runners.
+      - name: Lint shell scripts
+        run: bun run lint:shell
+
+      - name: Typecheck
+        run: bun run typecheck
+
+      - name: Test
+        run: bun test
+
+      # Proves the production build still works, which none of the gates above
+      # cover: adapter-node output is what `bun run serve` and the LaunchAgent run.
+      - name: Build
+        run: bun run build
