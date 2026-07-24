@@ -7,7 +7,6 @@
   import CircleCheckIcon from "@lucide/svelte/icons/circle-check";
   import ChevronDownIcon from "@lucide/svelte/icons/chevron-down";
   import ChevronRightIcon from "@lucide/svelte/icons/chevron-right";
-  import CopyIcon from "@lucide/svelte/icons/copy";
   import RefreshCwIcon from "@lucide/svelte/icons/refresh-cw";
   import { Badge } from "$lib/components/ui/badge";
   import { Button } from "$lib/components/ui/button";
@@ -376,21 +375,6 @@
     });
   }
 
-  async function copyDigest(): Promise<void> {
-    const lines = ["# GHE Notification Watch Digest", ""];
-    for (const item of filteredItems) {
-      lines.push(`## ${item.repo} #${item.number}`);
-      lines.push("");
-      lines.push(item.summary);
-      lines.push("");
-      lines.push(`- Kind: ${labelKind(item.kind)}`);
-      lines.push(`- Lifecycle: ${item.lifecycle}`);
-      lines.push(`- URL: ${item.url}`);
-      lines.push("");
-    }
-    await navigator.clipboard.writeText(lines.join("\n"));
-  }
-
   function typeClass(item: WatchItem): string {
     if (item.kind === "pr_review_request") return "border-l-sky-500";
     if (item.kind === "pr_comment" || item.kind === "pr_review_comment") return "border-l-violet-500";
@@ -448,10 +432,6 @@
       <Button variant="outline" onclick={refresh}>
         <RefreshCwIcon data-icon="inline-start" />
         Refresh
-      </Button>
-      <Button variant="outline" onclick={copyDigest}>
-        <CopyIcon data-icon="inline-start" />
-        Copy digest
       </Button>
       <Button variant="outline" onclick={enableNotifications}>
         <BellIcon data-icon="inline-start" />
