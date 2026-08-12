@@ -14,6 +14,17 @@ describe("sanitizeHtml", () => {
       '<a href="https://ghe.example.com/x" target="_blank" rel="noreferrer">ok</a>',
     );
   });
+
+  test("rejects protocol-relative and backslash-authority hrefs", () => {
+    // The browser resolves "//host" and "/\host" to an off-site origin, so a
+    // commenter could disguise an off-site phishing link as an internal path.
+    expect(sanitizeHtml('<a href="//evil.example/x">x</a>')).toBe("<a>x</a>");
+    expect(sanitizeHtml('<a href="/\\evil.example/x">x</a>')).toBe("<a>x</a>");
+    // A genuine single-slash internal path is still allowed.
+    expect(sanitizeHtml('<a href="/acme/api/pull/1">x</a>')).toBe(
+      '<a href="/acme/api/pull/1" target="_blank" rel="noreferrer">x</a>',
+    );
+  });
 });
 
 describe("renderRichText", () => {

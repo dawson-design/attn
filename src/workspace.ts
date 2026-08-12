@@ -7,9 +7,25 @@ import { spawn } from "node:child_process";
 // (https://host/owner/repo.git) forms, any owner/org, and repo names that
 // contain dots (e.g. `api-docs.wiki`). The returned slug matches `gh`'s
 // `nameWithOwner`, which is how local checkouts are keyed to search results.
-function parseRemote(remote: string, host: string): string | undefined {
+// Hostname of a git remote, for both ssh (git@host:owner/repo) and url
+// (https://host/owner/repo, ssh://git@host/owner/repo) forms.
+function remoteHost(remote: string): string | undefined {
+  const scp = remote.match(/^[^/@]+@([^:/]+):/);
+  if (scp) return scp[1];
+  try {
+    return new URL(remote).hostname;
+  } catch {
+    return undefined;
+  }
+}
+
+export function parseRemote(remote: string, host: string): string | undefined {
   const cleaned = remote.trim().replace(/\.git$/, "");
-  if (host && !cleaned.includes(host)) return undefined;
+  // Exact hostname match, not substring: "github.com.attacker.net" contains
+  // "github.com" but is a different host, and accepting it would map an
+  // attacker's checkout as the real repo (the review terminal then cd's in and
+  // runs git against that remote).
+  if (host && remoteHost(cleaned)?.toLowerCase() !== host.toLowerCase()) return undefined;
   const match = cleaned.match(/[:/]([^/:]+)\/([^/]+)$/);
   return match ? `${match[1]}/${match[2]}` : undefined;
 }

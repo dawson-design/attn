@@ -35,3 +35,35 @@ export function isAllowedHost(hostHeader: string, extraHosts: Iterable<string> =
   }
   return allowed.has(hostnameOf(hostHeader).toLowerCase());
 }
+
+const SAFE_METHODS = new Set(["GET", "HEAD", "OPTIONS"]);
+
+// Pinning Host to loopback stops DNS rebinding, but it is not a CSRF control: a
+// page on any origin can `fetch("http://127.0.0.1:8765/api/...")`, which sends a
+// loopback Host that isAllowedHost accepts. There are no credentials to steal
+// here, but the state-changing endpoints have local side effects (open-review-
+// terminal launches a process; ack mutates state). SvelteKit's built-in check
+// only covers form content types and is off in dev, so guard the origin here.
+export function isAllowedRequestOrigin(
+  method: string,
+  secFetchSite: string | null,
+  origin: string | null,
+  extraHosts: Iterable<string> = [],
+): boolean {
+  if (SAFE_METHODS.has(method.toUpperCase())) return true;
+  // Fetch metadata is the most reliable signal and is set by every current
+  // browser. "same-origin" is the dashboard's own fetch(); "none" is a user
+  // gesture (typed URL, bookmark). "same-site"/"cross-site" are not us.
+  if (secFetchSite) return secFetchSite === "same-origin" || secFetchSite === "none";
+  // Older browsers omit Sec-Fetch-Site but still send Origin on a POST. A
+  // non-browser client (curl, the CLI) sends neither and carries no ambient
+  // authority, so it is not a CSRF vector — allow it.
+  if (origin) {
+    try {
+      return isAllowedHost(new URL(origin).host, extraHosts);
+    } catch {
+      return false; // opaque origins serialize to the literal "null"
+    }
+  }
+  return true;
+}

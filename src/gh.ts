@@ -8,29 +8,38 @@ function commandKey(args: string[]): string {
   return `${args[0] || ""} ${args[1] || ""}`.trim();
 }
 
+// The letters of a short-flag token, or undefined for long flags / operands.
+// gh uses pflag, which lets short flags cluster in one token: -iXPOST is -i
+// (include) + -X POST. A per-token equality check misses a flag smuggled inside
+// a cluster, so method/field detection inspects these letters.
+function shortFlagLetters(arg: string): string | undefined {
+  return arg.startsWith("-") && !arg.startsWith("--") && arg.length > 1 ? arg.slice(1) : undefined;
+}
+
 // `gh api` defaults to POST as soon as any field/body flag is present, and
 // `gh api graphql` can carry mutations — neither sets -X. So enforcing "GET
 // only" means rejecting those, not just an explicit non-GET --method.
 function isApiWriteFlag(arg: string): boolean {
-  return (
-    arg === "-f" ||
-    arg === "-F" ||
-    arg === "--field" ||
-    arg === "--raw-field" ||
-    arg === "--input" ||
-    arg.startsWith("--field=") ||
-    arg.startsWith("--raw-field=") ||
-    arg.startsWith("--input=") ||
-    ((arg.startsWith("-f") || arg.startsWith("-F")) && arg.length > 2)
-  );
+  if (arg === "--field" || arg === "--raw-field" || arg === "--input") return true;
+  if (arg.startsWith("--field=") || arg.startsWith("--raw-field=") || arg.startsWith("--input=")) return true;
+  // -f / -F (field / field-raw) anywhere in a short-flag cluster forces a write.
+  const letters = shortFlagLetters(arg);
+  return letters !== undefined && /[fF]/.test(letters);
 }
 
 function apiMethod(args: string[]): string | undefined {
   for (let i = 0; i < args.length; i += 1) {
     const arg = args[i];
-    if (arg === "-X" || arg === "--method") return args[i + 1]?.toUpperCase();
+    if (arg === "--method") return args[i + 1]?.toUpperCase();
     if (arg.startsWith("--method=")) return arg.slice("--method=".length).toUpperCase();
-    if (arg.startsWith("-X") && arg.length > 2) return arg.slice(2).toUpperCase(); // -XPOST
+    // -X in any short cluster: the value is the rest of the token (-iXPOST) or
+    // the following arg (-iX POST).
+    const letters = shortFlagLetters(arg);
+    const x = letters?.indexOf("X") ?? -1;
+    if (letters !== undefined && x !== -1) {
+      const rest = letters.slice(x + 1);
+      return (rest || args[i + 1])?.toUpperCase();
+    }
   }
   return undefined;
 }

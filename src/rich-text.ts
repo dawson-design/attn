@@ -32,6 +32,10 @@ function escapeHtml(value: string): string {
 
 function isSafeHref(value: string): boolean {
   const trimmed = value.trim();
+  // Protocol-relative ("//host") and backslash-authority ("/\host") URLs look
+  // internal but the browser resolves them to an off-site origin — reject them
+  // before the single-slash "internal path" check below accepts them.
+  if (trimmed.startsWith("//") || /^\/[\\/]/.test(trimmed)) return false;
   return (
     trimmed.startsWith("#") ||
     trimmed.startsWith("/") ||

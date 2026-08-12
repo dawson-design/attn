@@ -8,6 +8,17 @@ import { DEFAULT_REVIEW_PROMPT, renderReviewPrompt } from "./review-prompt";
 // fall back to fetching the PR head by its (integer) number.
 const SAFE_REF = /^[A-Za-z0-9._/-]+$/;
 
+// number is typed as a number, but it round-trips through snapshot.json /
+// github-cache.json, which are JSON.parse'd and cast without validation. It is
+// inlined unquoted into the generated shell (git ... pull/<n>/head) and into a
+// filename, so a non-integer would be command injection and path traversal.
+export function safePrNumber(value: number): number {
+  if (!Number.isSafeInteger(value) || value <= 0) {
+    throw new Error(`Invalid PR number: ${String(value)}`);
+  }
+  return value;
+}
+
 export function safeRef(ref: string | undefined): string | undefined {
   if (!ref || ref.includes("..") || !SAFE_REF.test(ref)) return undefined;
   // Reject refs where any path component starts with "-". Git accepts branches
@@ -30,12 +41,13 @@ git checkout ${headBranch} --
 git pull --ff-only`;
   }
   // No usable branch name (missing or rejected by validation); fetch the PR head
-  // ref by number instead. `item.number` is an integer, so it is safe to inline.
-  const prBranch = `pr-${item.number}`;
+  // ref by number instead. Validate the number before inlining it unquoted.
+  const number = safePrNumber(item.number);
+  const prBranch = `pr-${number}`;
   return `git fetch origin
 git checkout ${base} --
 git pull --ff-only
-git fetch origin pull/${item.number}/head:${prBranch}
+git fetch origin pull/${number}/head:${prBranch}
 git checkout ${prBranch} --`;
 }
 

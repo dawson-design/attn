@@ -127,12 +127,15 @@ export function reconcileItems(
 
 export function acknowledge(state: AppState, ids: string[], at = new Date().toISOString()): void {
   for (const id of ids) {
-    if (state.items[id]) state.items[id].acknowledgedAt = at;
+    // hasOwn, not truthiness: a crafted id like "__proto__" reaches
+    // Object.prototype through the chain, so `state.items[id]` would be truthy
+    // and the assignment would pollute every object in the process.
+    if (Object.hasOwn(state.items, id)) state.items[id].acknowledgedAt = at;
   }
 }
 
 export function unacknowledge(state: AppState, ids: string[]): void {
   for (const id of ids) {
-    if (state.items[id]) delete state.items[id].acknowledgedAt;
+    if (Object.hasOwn(state.items, id)) delete state.items[id].acknowledgedAt;
   }
 }

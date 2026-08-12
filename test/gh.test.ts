@@ -29,6 +29,17 @@ describe("read-only gh allowlist", () => {
     expect(() => assertReadOnlyGhArgs(["api", "-XDELETE", "repos/x"])).toThrow();
   });
 
+  test("rejects clustered short flags that smuggle a method or field flag", () => {
+    // gh's pflag lets a boolean shorthand cluster before a value-taking one in
+    // one token: -iXPOST is -i (include) + -X POST, which sets a write method
+    // while matching no per-token check.
+    expect(() => assertReadOnlyGhArgs(["api", "repos/x", "-iXPOST"])).toThrow();
+    expect(() => assertReadOnlyGhArgs(["api", "repos/x", "-iX", "POST"])).toThrow();
+    expect(() => assertReadOnlyGhArgs(["api", "repos/x", "-iXDELETE"])).toThrow();
+    // Same clustering can hide a field flag (-f/-F), which forces a POST body.
+    expect(() => assertReadOnlyGhArgs(["api", "repos/x", "-iFtitle=hi"])).toThrow();
+  });
+
   test("still allows explicit and implicit GET api reads", () => {
     expect(() => assertReadOnlyGhArgs(["api", "repos/x"])).not.toThrow();
     expect(() => assertReadOnlyGhArgs(["api", "repos/x", "-X", "GET"])).not.toThrow();

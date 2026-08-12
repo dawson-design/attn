@@ -73,10 +73,32 @@ gw_port() {
     echo "${value:-8765}"
 }
 
+# Escape a value for safe substitution into an XML plist via sed: first
+# XML-escape the markup metacharacters (so a value cannot inject plist elements
+# such as a rogue ProgramArguments), then escape the characters sed treats
+# specially in the replacement text (backslash, ampersand, and the | delimiter).
+# Order matters: XML-escape, then backslashes, then & and | that we introduce.
+gw_sed_replacement() {
+    local value="$1"
+    value="${value//&/&amp;}"
+    value="${value//</&lt;}"
+    value="${value//>/&gt;}"
+    value="${value//\\/\\\\}"
+    value="${value//&/\\&}"
+    value="${value//|/\\|}"
+    printf '%s' "$value"
+}
+
 # Render a plist template to a destination, substituting __PLACEHOLDER__ values.
 # Usage: gw_render_template SRC DST LABEL APP_DIR BUN PATH HOST PORT
 gw_render_template() {
-    local src="$1" dst="$2" label="$3" app_dir="$4" bun="$5" launch_path="$6" host="$7" port="$8"
+    local src="$1" dst="$2" label app_dir bun launch_path host port
+    label="$(gw_sed_replacement "$3")"
+    app_dir="$(gw_sed_replacement "$4")"
+    bun="$(gw_sed_replacement "$5")"
+    launch_path="$(gw_sed_replacement "$6")"
+    host="$(gw_sed_replacement "$7")"
+    port="$(gw_sed_replacement "$8")"
     sed \
         -e "s|__LABEL__|${label}|g" \
         -e "s|__APP_DIR__|${app_dir}|g" \

@@ -84,6 +84,24 @@ describe("workspace discovery", () => {
     }
   });
 
+  test("rejects a lookalike host that merely contains the configured host", async () => {
+    const root = await mkdtemp(`${tmpdir()}/ghe-workspace-`);
+    const repoPath = `${root}/api`;
+    try {
+      await mkdir(repoPath);
+      git(repoPath, ["init"]);
+      // Substring-matching "ghe.example.com" would wrongly accept this remote and
+      // map the attacker's checkout as the real acme/api.
+      git(repoPath, ["remote", "add", "origin", "https://ghe.example.com.attacker.net/acme/api.git"]);
+
+      const repos = await discoverWorkspaceRepos(config([root], {}, "ghe.example.com"));
+
+      expect(repos.has("acme/api")).toBe(false);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
   test("uses configured repo path map before scanned roots", async () => {
     const repos = await discoverWorkspaceRepos(
       config(["/missing/root"], {

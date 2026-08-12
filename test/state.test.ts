@@ -26,6 +26,27 @@ function item(updatedAt: string): WatchItem {
   };
 }
 
+describe("acknowledge", () => {
+  test("ignores prototype-polluting ids", () => {
+    // A crafted id like "__proto__" is truthy via the prototype chain; guarding
+    // with hasOwn keeps the write off Object.prototype.
+    const state = emptyState();
+    acknowledge(state, ["__proto__", "constructor"], "2099-01-01T00:00:00Z");
+    expect(({} as Record<string, unknown>).acknowledgedAt).toBeUndefined();
+    expect(Object.hasOwn(state.items, "__proto__")).toBe(false);
+  });
+
+  test("acknowledges and unacknowledges real ids", () => {
+    const state = emptyState();
+    reconcileItems(state, [item("2026-06-01T20:00:00Z")], "2026-06-01T20:01:00Z");
+    const id = "acme/schemas#35:pr_review_request";
+    acknowledge(state, [id], "2026-06-02T00:00:00Z");
+    expect(state.items[id].acknowledgedAt).toBe("2026-06-02T00:00:00Z");
+    unacknowledge(state, [id]);
+    expect(state.items[id].acknowledgedAt).toBeUndefined();
+  });
+});
+
 describe("item lifecycle", () => {
   test("keeps locally seen unacknowledged items active until GitHub-derived queries stop returning them", () => {
     const state = emptyState();

