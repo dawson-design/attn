@@ -158,10 +158,10 @@ describe("fetchItemDetails", () => {
     });
   });
 
-  test("review-comment details resolve from the reviews field, not issue comments", async () => {
+  test("review-sourced pr_comment details resolve from the reviews field, not issue comments", async () => {
     const reviewItem = {
-      ...item("pr_review_comment"),
-      id: "acme/api#42:pr_review_comment:r2",
+      ...item("pr_comment"),
+      id: "acme/api#42:pr_comment:review:r2",
       url: "https://ghe.example.com/acme/api/pull/42#pullrequestreview-2",
       actor: "reviewer",
       summary: "Review changes requested: Please add a test for the retry path.",

@@ -11,6 +11,7 @@
     "preview": "vite preview --host 127.0.0.1 --port ${GHE_WATCH_PORT:-8765}",
     "serve": "HOST=127.0.0.1 PORT=${GHE_WATCH_PORT:-8765} bun build/index.js",
     "watch": "bun src/cli/watch.ts",
+    "cli": "bun src/cli/main.ts",
     "check": "svelte-check --tsconfig ./tsconfig.json",
     "test": "bun test",
     "coverage": "bun test --coverage",

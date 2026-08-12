@@ -49,8 +49,8 @@ function detailsArgs(item: WatchItem): string[] {
   const isPr = item.kind.startsWith("pr_");
   const kind = isPr ? "pr" : "issue";
   // Review submissions live in the separate `reviews` field, not `comments`, so
-  // a pr_review_comment item's detail can only be found when reviews are asked
-  // for. `gh issue view` has no reviews field.
+  // a review-sourced pr_comment item's detail can only be found when reviews
+  // are asked for. `gh issue view` has no reviews field.
   const fields = isPr ? "body,comments,reviews" : "body,comments";
   return [kind, "view", String(item.number), "--repo", item.repo, "--json", fields];
 }
@@ -91,14 +91,11 @@ function normalizeDetails(
     };
   });
 
-  let focusedComments: NormalizedComment[];
-  if (item.kind === "pr_review_comment") {
-    focusedComments = reviews.filter((review) => isFocused(item, review));
-  } else if (item.kind.endsWith("_comment")) {
-    focusedComments = comments.filter((comment) => isFocused(item, comment));
-  } else {
-    focusedComments = comments;
-  }
+  // A pr_comment row may have come from either `comments` or `reviews`, so the
+  // focused lookup has to search both.
+  const focusedComments = item.kind.endsWith("_comment")
+    ? [...comments, ...reviews].filter((entry) => isFocused(item, entry))
+    : comments;
 
   return {
     id: item.id,

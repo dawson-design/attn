@@ -157,22 +157,36 @@ function commentItem(parent: WatchItem, comment: GhComment, kind: "pr_comment" |
 // review usually just accompanies inline comments and would be noise.
 const REVIEW_STATES_SHOWN = new Set(["APPROVED", "CHANGES_REQUESTED", "DISMISSED"]);
 
-function notableReviews(view: GhPrView | undefined, cap: number): GhPrReview[] {
-  return lastN(
-    (view?.reviews || []).filter((review) => (review.body || "").trim() || REVIEW_STATES_SHOWN.has(review.state || "")),
-    cap,
+function notableReviews(view: GhPrView | undefined): GhPrReview[] {
+  return (view?.reviews || []).filter(
+    (review) => (review.body || "").trim() || REVIEW_STATES_SHOWN.has(review.state || ""),
   );
+}
+
+// Comments and review submissions are one kind of row, so the cap has to apply
+// to the merged set: capping each source separately would let a single PR
+// produce twice `commentsPerIssue` rows and make "the latest N" a lie.
+function prCommentItems(parent: WatchItem, view: GhPrView | undefined, cap: number): WatchItem[] {
+  const merged = [
+    ...(view?.comments || []).map((comment) => commentItem(parent, comment, "pr_comment")),
+    ...notableReviews(view).map((review) => reviewItem(parent, review)),
+  ];
+  merged.sort((left, right) => left.createdAt.localeCompare(right.createdAt));
+  return lastN(merged, cap);
 }
 
 function reviewItem(parent: WatchItem, review: GhPrReview): WatchItem {
   const created = review.submittedAt || parent.updatedAt;
-  const idPart = review.id || review.url || `${created}:${review.author?.login || "unknown"}`;
+  // `review:` keeps a review id from ever colliding with a comment id now that
+  // both kinds of row share the `pr_comment` id prefix. It sits inside the id
+  // part so item-details' `endsWith(":<id>")` match still resolves.
+  const idPart = `review:${review.id || review.url || `${created}:${review.author?.login || "unknown"}`}`;
   const stateLabel = (review.state || "commented").toLowerCase().replaceAll("_", " ");
   const body = (review.body || "").replace(/\s+/g, " ").trim();
   return {
     ...parent,
-    id: `${parent.repo}#${parent.number}:pr_review_comment:${idPart}`,
-    kind: "pr_review_comment",
+    id: `${parent.repo}#${parent.number}:pr_comment:${idPart}`,
+    kind: "pr_comment",
     lifecycle: "new",
     actor: review.author?.login || "unknown",
     url: review.url || parent.url,
@@ -374,12 +388,7 @@ export async function fetchWatchItems(
     items.push(parent);
     // Cap like issues do: only the latest few comments become items, so a
     // long-running PR does not flood the dashboard with rows.
-    for (const comment of lastN(view?.comments || [], config.commentsPerIssue)) {
-      items.push(commentItem(parent, comment, "pr_comment"));
-    }
-    for (const review of notableReviews(view, config.commentsPerIssue)) {
-      items.push(reviewItem(parent, review));
-    }
+    items.push(...prCommentItems(parent, view, config.commentsPerIssue));
   });
 
   const issueQueries: Array<{ kind: "issue_assigned" | "issue_mention"; key: string; args: string[] }> = [

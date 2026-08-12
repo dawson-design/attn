@@ -1,0 +1,322 @@
+// `ghe-watch` — the run-only front door to the dashboard.
+//
+// Installed (Homebrew) deployments run this as `bin/ghe-watch`, a wrapper that
+// sets GHE_WATCH_HOME and execs `bun cli.js <command>`; dev checkouts run the
+// same commands via `bun run cli <command>`. Mode selection and all path
+// differences live in src/paths.ts — this file only picks entry points.
+//
+// Commands:
+//   serve              run the dashboard server (what `brew services` invokes)
+//   init               first-run setup: write the config file, check gh auth,
+//                      offer the notification-window login item
+//   install-window     install the login-time Chrome window LaunchAgent
+//   uninstall-window   remove it
+//   open               open the Chrome app window now (used by the LaunchAgent)
+//   status             show config paths, server/agent/auth state
+
+import { spawnSync } from "node:child_process";
+import { existsSync, mkdirSync, rmSync, writeFileSync, copyFileSync } from "node:fs";
+import { homedir, userInfo } from "node:os";
+import { dirname, resolve } from "node:path";
+import { createInterface } from "node:readline/promises";
+import { fileURLToPath } from "node:url";
+import { loadConfig } from "../config";
+import { resolveAppPaths, type AppPaths } from "../paths";
+import { renderWindowPlist, windowAgentLabel } from "./window-agent";
+
+export interface CliInvocation {
+  command?: string;
+  force: boolean;
+  help: boolean;
+  unknown: string[];
+}
+
+export function parseCliArgs(argv: string[]): CliInvocation {
+  const invocation: CliInvocation = { force: false, help: false, unknown: [] };
+  for (const arg of argv) {
+    if (arg === "--force" || arg === "-f") invocation.force = true;
+    else if (arg === "--help" || arg === "-h") invocation.help = true;
+    else if (arg.startsWith("-")) invocation.unknown.push(arg);
+    else if (invocation.command === undefined) invocation.command = arg;
+    else invocation.unknown.push(arg);
+  }
+  return invocation;
+}
+
+// Contents of the config file written by `init`. Round-trips through
+// parseEnvFile (see config-file.ts), so what init writes is exactly what
+// loadConfig reads back.
+export function buildConfigFileContents(host: string, checkoutRoots: string): string {
+  const lines = [
+    "# ghe-notification-watch configuration (KEY=value).",
+    "# No secrets belong here — GitHub auth comes from `gh auth login`.",
+    "# All available GHE_WATCH_* settings are documented in the project README.",
+    `GHE_WATCH_HOST=${host}`,
+  ];
+  if (checkoutRoots) lines.push(`GHE_WATCH_CHECKOUT_ROOTS=${checkoutRoots}`);
+  return `${lines.join("\n")}\n`;
+}
+
+const HELP = `Usage: ghe-watch <command>
+
+Commands:
+  serve              Run the dashboard server (foreground; brew services uses this)
+  init [--force]     First-run setup: write the config file, check gh auth,
+                     offer the notification-window login item
+  install-window     Open a Chrome app window to the dashboard at every login
+  uninstall-window   Stop opening it
+  open               Open the Chrome app window now
+  status             Show config paths, server, window agent, and gh auth state
+`;
+
+function installRoot(): string | undefined {
+  const home = process.env.GHE_WATCH_HOME?.trim();
+  return home || undefined;
+}
+
+// Repo root when running from a checkout (this file lives at src/cli/main.ts).
+function repoRoot(): string {
+  return resolve(dirname(fileURLToPath(import.meta.url)), "..", "..");
+}
+
+function appPaths(): AppPaths {
+  return resolveAppPaths(process.env, homedir(), process.cwd());
+}
+
+function fail(message: string): never {
+  console.error(`ERROR: ${message}`);
+  process.exit(1);
+}
+
+function requireDarwin(command: string): void {
+  if (process.platform !== "darwin") fail(`\`${command}\` manages a macOS LaunchAgent and only runs on macOS`);
+}
+
+function run(command: string, args: string[], opts: { allowFailure?: boolean } = {}): number {
+  const result = spawnSync(command, args, { stdio: "inherit" });
+  const status = result.status ?? 1;
+  if (status !== 0 && !opts.allowFailure) fail(`${command} ${args.join(" ")} exited with ${status}`);
+  return status;
+}
+
+function launchdDomain(): string {
+  return `gui/${process.getuid!()}`;
+}
+
+function windowAgentPlistPath(label: string): string {
+  return `${homedir()}/Library/LaunchAgents/${label}.plist`;
+}
+
+// --- serve --------------------------------------------------------------------
+
+async function serve(): Promise<void> {
+  const config = loadConfig();
+  // Loopback binding is part of the security model — never widen it here.
+  process.env.HOST = "127.0.0.1";
+  process.env.PORT ||= String(config.port);
+  const root = installRoot();
+  const entry = root ? `${root}/server/index.js` : `${repoRoot()}/build/index.js`;
+  if (!existsSync(entry)) {
+    fail(`server entry not found: ${entry}${root ? "" : " — run 'bun run build' first"}`);
+  }
+  await import(entry);
+}
+
+// --- window agent -------------------------------------------------------------
+
+function installWindow(): void {
+  requireDarwin("install-window");
+  const config = loadConfig();
+  const label = windowAgentLabel(userInfo().username);
+
+  if (!existsSync("/Applications/Google Chrome.app")) {
+    console.warn(
+      "WARNING: Google Chrome.app not found in /Applications; the window will not open until it is installed.",
+    );
+  }
+
+  const root = installRoot();
+  // Installed mode launches the packaged wrapper (which restores
+  // GHE_WATCH_HOME); dev mode runs this file with the current bun.
+  const programArgs = root
+    ? [process.env.GHE_WATCH_BIN?.trim() || resolve(root, "..", "bin", "ghe-watch"), "open"]
+    : [process.execPath, `${repoRoot()}/src/cli/main.ts`, "open"];
+  const logDir = root ? `${homedir()}/Library/Logs/ghe-watch` : `${repoRoot()}/.local-state/logs`;
+  mkdirSync(logDir, { recursive: true });
+
+  const plist = renderWindowPlist({
+    label,
+    programArgs,
+    path: `${dirname(process.execPath)}:/usr/bin:/bin:/usr/sbin:/sbin`,
+    port: config.port,
+    logDir,
+  });
+  const plistPath = windowAgentPlistPath(label);
+  mkdirSync(dirname(plistPath), { recursive: true });
+  writeFileSync(plistPath, plist);
+
+  console.log(`==> Loading ${label}`);
+  run("launchctl", ["bootout", `${launchdDomain()}/${label}`], { allowFailure: true });
+  run("launchctl", ["bootstrap", launchdDomain(), plistPath]);
+  run("launchctl", ["kickstart", "-k", `${launchdDomain()}/${label}`]);
+  console.log(`==> Done. A Chrome app window opens once http://127.0.0.1:${config.port} responds.`);
+  console.log("    First time only: click 'Enable notifications' in the dashboard header and Allow");
+  console.log("    the Chrome permission prompt so new items trigger a macOS notification.");
+}
+
+function uninstallWindow(): void {
+  requireDarwin("uninstall-window");
+  const label = windowAgentLabel(userInfo().username);
+  run("launchctl", ["bootout", `${launchdDomain()}/${label}`], { allowFailure: true });
+  rmSync(windowAgentPlistPath(label), { force: true });
+  console.log(`==> Removed ${windowAgentPlistPath(label)}`);
+}
+
+// --- open ---------------------------------------------------------------------
+
+async function serverResponds(url: string): Promise<boolean> {
+  try {
+    await fetch(url, { signal: AbortSignal.timeout(2000) });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+// Both LaunchAgents are RunAtLoad with no ordering guarantee between them, so
+// wait for the backend before opening the window (any HTTP response counts).
+async function openWindow(): Promise<void> {
+  requireDarwin("open");
+  const url = `http://127.0.0.1:${loadConfig().port}`;
+  console.log(`==> Waiting for ${url} to respond`);
+  for (let attempt = 0; attempt < 30; attempt += 1) {
+    if (await serverResponds(url)) break;
+    await new Promise((resolveSleep) => setTimeout(resolveSleep, 1000));
+  }
+  console.log("==> Opening dashboard app window");
+  run("open", ["-na", "Google Chrome", "--args", `--app=${url}`]);
+}
+
+// --- init ---------------------------------------------------------------------
+
+async function init(force: boolean): Promise<void> {
+  const paths = appPaths();
+  // Write wherever the app actually reads config in this mode: the installed
+  // config file, or the checkout's .env that Bun auto-loads.
+  const configFile = paths.mode === "installed" ? paths.configFile! : `${repoRoot()}/.env`;
+  if (existsSync(configFile) && !force) {
+    fail(`${configFile} already exists — edit it directly, or re-run with --force to overwrite`);
+  }
+
+  const rl = createInterface({ input: process.stdin, output: process.stdout });
+  try {
+    const host = (await rl.question("GitHub host to watch [github.com]: ")).trim() || "github.com";
+    const roots = (
+      await rl.question("Local checkout roots to scan for clones (comma-separated absolute paths, empty to skip): ")
+    ).trim();
+
+    mkdirSync(dirname(configFile), { recursive: true });
+    writeFileSync(configFile, buildConfigFileContents(host, roots));
+    console.log(`==> Wrote ${configFile}`);
+    seedReviewPrompt(paths);
+    checkGhAuth(host);
+
+    if (process.platform === "darwin") {
+      const answer = (await rl.question("Open a Chrome notification window at login? [Y/n]: ")).trim().toLowerCase();
+      if (answer === "" || answer === "y" || answer === "yes") installWindow();
+    }
+  } finally {
+    rl.close();
+  }
+
+  console.log("==> Setup complete.");
+  if (paths.mode === "installed") {
+    console.log("    Start the dashboard with: brew services start ghe-watch");
+  } else {
+    console.log("    Start the dashboard with: bun run dev (or scripts/install-service.sh for the login service)");
+  }
+}
+
+// Give installed users an editable copy of the review-prompt template; the
+// packaged share/review.md matches the built-in default, so this is purely a
+// customization convenience and skipping it loses nothing.
+function seedReviewPrompt(paths: AppPaths): void {
+  const root = installRoot();
+  if (!root || paths.mode !== "installed" || existsSync(paths.reviewPromptFile)) return;
+  const shipped = `${root}/share/review.md`;
+  if (!existsSync(shipped)) return;
+  mkdirSync(dirname(paths.reviewPromptFile), { recursive: true });
+  copyFileSync(shipped, paths.reviewPromptFile);
+  console.log(`==> Seeded review-prompt template at ${paths.reviewPromptFile}`);
+}
+
+function checkGhAuth(host: string): void {
+  const result = spawnSync("gh", ["auth", "status", "--hostname", host], { stdio: "ignore" });
+  if (result.error) {
+    console.warn("WARNING: `gh` not found on PATH — install it (brew install gh) and run:");
+  } else if (result.status !== 0) {
+    console.warn(`WARNING: gh is not authenticated against ${host} — run:`);
+  } else {
+    console.log(`==> gh is authenticated against ${host}`);
+    return;
+  }
+  console.warn(`    gh auth login --hostname ${host}`);
+}
+
+// --- status -------------------------------------------------------------------
+
+async function status(): Promise<void> {
+  const config = loadConfig();
+  const paths = appPaths();
+  console.log(`mode:         ${paths.mode}`);
+  console.log(`config file:  ${paths.configFile ?? "(dev: .env in the checkout)"}`);
+  console.log(`state file:   ${config.stateFile}`);
+  console.log(`host:         ${config.host}`);
+
+  const url = `http://127.0.0.1:${config.port}`;
+  console.log(`server:       ${(await serverResponds(url)) ? `responding at ${url}` : `not responding at ${url}`}`);
+
+  if (process.platform === "darwin") {
+    const label = windowAgentLabel(userInfo().username);
+    const loaded = spawnSync("launchctl", ["print", `${launchdDomain()}/${label}`], { stdio: "ignore" }).status === 0;
+    console.log(`window agent: ${label} ${loaded ? "loaded" : "not loaded"}`);
+  }
+
+  const auth = spawnSync("gh", ["auth", "status", "--hostname", config.host], { stdio: "ignore" });
+  console.log(
+    `gh auth:      ${auth.error ? "gh not found" : auth.status === 0 ? "ok" : `not logged in to ${config.host}`}`,
+  );
+}
+
+// --- entry --------------------------------------------------------------------
+
+async function main(argv: string[]): Promise<void> {
+  const invocation = parseCliArgs(argv);
+  if (invocation.unknown.length > 0) fail(`unknown arguments: ${invocation.unknown.join(" ")}\n\n${HELP}`);
+  if (invocation.help || invocation.command === undefined) {
+    console.log(HELP);
+    if (invocation.command === undefined && !invocation.help) process.exit(1);
+    return;
+  }
+
+  switch (invocation.command) {
+    case "serve":
+      return serve();
+    case "init":
+      return init(invocation.force);
+    case "install-window":
+      return installWindow();
+    case "uninstall-window":
+      return uninstallWindow();
+    case "open":
+      return openWindow();
+    case "status":
+      return status();
+    default:
+      fail(`unknown command: ${invocation.command}\n\n${HELP}`);
+  }
+}
+
+if (import.meta.main) {
+  await main(process.argv.slice(2));
+}

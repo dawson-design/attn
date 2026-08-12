@@ -17,6 +17,7 @@ bun install
 bun run dev          # vite dev server on http://127.0.0.1:8765
 bun run build        # production build (adapter-node -> build/)
 bun run serve        # run the built server: bun build/index.js
+bun run cli          # the ghe-watch CLI from the checkout (serve/init/install-window/open/status)
 bun test             # all tests (bun:test)
 bun test test/summary.test.ts    # a single test file
 bun test -t "schema" # filter tests by name across files
@@ -57,6 +58,8 @@ The SvelteKit routes are thin wrappers over this service:
 3. Summarizes via `src/summary.ts` — `summarize` uses the first sentence of the body when available, otherwise the title.
 4. Produces `WatchItem`s, including synthetic per-comment items (`pr_comment` / `issue_comment`). Issues that match both the assigned and mentions searches are deduplicated to a single item.
 
+PR review submissions (from `gh pr view --json reviews`) are `pr_comment` items too, not a kind of their own: they differ only in which `gh` field holds them, and the verdict survives in the summary (`Review changes requested: ...`). A bodiless `COMMENTED` review is dropped as noise (`REVIEW_STATES_SHOWN` in `src/fetch.ts`). Because both sources feed one kind, `commentsPerIssue` caps the **merged, time-sorted** list in `prCommentItems` rather than each source separately. Review-sourced ids carry a `review:` segment (`repo#42:pr_comment:review:<id>`) so they cannot collide with comment ids, and `item-details.ts` searches both `comments` and `reviews` when resolving a focused `pr_comment`.
+
 Then `reconcileItems` (`src/state.ts`) merges fetched items against persisted user state to assign each a `lifecycle` (`new`/`unread`/`active`/`acknowledged`), dropping items GitHub no longer returns, and writes back `StoredItem` records. The result is assembled into a `Snapshot` and broadcast.
 
 `src/types.ts` is the contract for all of this (`Config`, `RawSearchItem`, `WatchItem`, `StoredItem`, `AppState`, `Snapshot`) — read it first when touching the pipeline.
@@ -93,10 +96,22 @@ Local checkouts are discovered by scanning `GHE_WATCH_CHECKOUT_ROOTS` (default: 
 
 ## Configuration
 
-All config is environment-driven through `loadConfig()` in `src/config.ts` — `stringFromEnv`/`numberFromEnv`/`listFromEnv`/`mapFromEnv` with defaults. Every variable is prefixed `GHE_WATCH_`; see `.env.example` (the canonical annotated list) and `README.md` for the full set (host, port, poll interval, repos, labels, checkout roots, repo path map, search limits, per-cache TTLs, rate-limit backoff, state/snapshot/cache file paths). Relevance filters (`repos`, `labels`) default to empty, meaning "show everything the personal searches return" — `isRelevant` in `src/fetch.ts` short-circuits to `true` when both are empty. `repos` is an **exact** allowlist matched against either the bare repo name or `owner/repo` (not a prefix), so a repo can be watched while a same-family sibling is excluded. The review-prompt template is loaded here too (`reviewPromptTemplate`, read once from `prompts/review.md` via `loadReviewPromptTemplate`, falling back to `DEFAULT_REVIEW_PROMPT`), and the review-terminal app (`terminalApp` from `GHE_WATCH_TERMINAL_APP`). Add new tunables here rather than reading `process.env` elsewhere.
+All config is environment-driven through `loadConfig()` in `src/config.ts` — `stringFrom`/`numberFrom`/`listFrom`/`mapFrom` over a single merged env map, with defaults. Every variable is prefixed `GHE_WATCH_`; see `.env.example` (the canonical annotated list) and `README.md` for the full set (host, port, poll interval, repos, labels, checkout roots, repo path map, search limits, per-cache TTLs, rate-limit backoff, state/snapshot/cache file paths). Relevance filters (`repos`, `labels`) default to empty, meaning "show everything the personal searches return" — `isRelevant` in `src/fetch.ts` short-circuits to `true` when both are empty. `repos` is an **exact** allowlist matched against either the bare repo name or `owner/repo` (not a prefix), so a repo can be watched while a same-family sibling is excluded. The review-prompt template is loaded here too (`reviewPromptTemplate`, via `loadReviewPromptTemplate`, falling back to `DEFAULT_REVIEW_PROMPT`), the review-terminal app (`terminalApp` from `GHE_WATCH_TERMINAL_APP`), and the Host-header allowlist (`allowedHosts`, consumed lazily by `hooks.server.ts`). Add new tunables here rather than reading `process.env` elsewhere.
+
+**Two runtime modes**, selected by `GHE_WATCH_HOME` (`src/paths.ts`, pure and injectable): unset = **dev mode**, every path default is cwd-relative exactly as before (state in `.local-state/`, prompt from `prompts/review.md`, config via Bun's `.env` auto-load, checkout scan of the workspace). Set (only ever by the packaged `ghe-watch` wrapper, pointing at its libexec) = **installed mode**: config is read by the app itself from `~/.config/ghe-watch/env` (parsed by `src/config-file.ts`, whose dialect deliberately matches `gw_env_file_value()` in `scripts/lib.sh`), state moves to `~/.local/state/ghe-watch/`, the prompt override to `~/.config/ghe-watch/review.md`, and `checkoutRoots` defaults to **empty** (no implicit `$HOME` scan — `ghe-watch init` asks). Precedence for every value: process env > config file > mode default. Don't introduce new cwd-relative paths; route them through `resolveAppPaths`.
+
+## Packaging & distribution
+
+Run-only users install via Homebrew (`brew install kreek/tap/ghe-watch`); the clone flow is unchanged for contributors. The pieces:
+
+- **`src/cli/main.ts`** (`bun run cli`, shipped as `ghe-watch`): `serve` (imports the adapter-node entry in-process — what `brew services` supervises), `init`, `install-window`/`uninstall-window`/`open` (the Chrome window LaunchAgent, plist rendered in code by `src/cli/window-agent.ts` — the label is shared with the dev scripts so reinstalls replace rather than orphan), `status`. `scripts/{install,uninstall}-window-launcher.sh` are thin delegators to it.
+- **`scripts/package-artifact.sh`** bundles `build/index.js` and the CLI with `bun build --target=bun` into a self-contained `libexec/` tarball (no `node_modules` at runtime; `build/client/` ships alongside because the handler resolves assets file-relatively).
+- **`scripts/smoke-artifact.sh`** boots that tarball from a clean dir and asserts the release invariants: loopback 200, foreign `Host` → 403, state under XDG, nothing written cwd-relative. `.github/workflows/release.yml` (tag `v*`, macOS runner) runs the full gate, packages, smokes, publishes the GitHub release, and pushes the rendered `packaging/homebrew/ghe-watch.rb` template to `kreek/homebrew-tap` (needs the `TAP_PUSH_TOKEN` secret).
+
+The security model above applies to the packaged artifact identically — the smoke's 403 check is a hard release gate, and the formula's service block bakes in no host/port (the app reads its config file at startup, so `brew services restart` picks up changes).
 
 ## Conventions
 
 - shadcn-svelte UI components live under `src/lib/components/ui/` and are **generated** — they're excluded from typecheck (`tsconfig` `exclude`) and shouldn't be hand-edited as if they were app code. `components.json` drives `shadcn-svelte` generation (`rhea` style, lucide icons).
-- Pure logic (`summary.ts`, `state.ts`, `github-cache.ts`, `workspace.ts`, `gh.ts`) is kept free of SvelteKit imports and is where the unit tests live (`test/*.test.ts`). Keep new business logic in these modules, testable in isolation, with the route/service layer thin.
+- Pure logic (`summary.ts`, `state.ts`, `github-cache.ts`, `workspace.ts`, `gh.ts`, `paths.ts`, `config-file.ts`, `cli/window-agent.ts`) is kept free of SvelteKit imports and is where the unit tests live (`test/*.test.ts`). Keep new business logic in these modules, testable in isolation, with the route/service layer thin.
 - Test fixtures that need a `Config` should give the cache TTLs a **negative** value when the test wants every refresh to re-run its fake `gh` runner. Freshness is `age <= ttl * 1000`, so a `0` TTL still counts as fresh for two calls landing in the same millisecond, which makes such tests intermittently green.

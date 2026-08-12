@@ -176,14 +176,17 @@ describe("fetch cache pipeline", () => {
     const result = await fetchWatchItems(config(), new Map(), cache, runner);
 
     const commentItems = result.items.filter((candidate) => candidate.kind === "pr_comment");
-    expect(commentItems).toHaveLength(3); // commentsPerIssue, latest only
-    expect(commentItems.map((candidate) => candidate.summary)).toEqual(["comment 7", "comment 8", "comment 9"]);
-
-    const reviewItems = result.items.filter((candidate) => candidate.kind === "pr_review_comment");
+    // The cap covers comments and reviews together, newest last, so the later
+    // review displaces the older comments rather than adding a fourth row.
+    expect(commentItems).toHaveLength(3);
+    expect(commentItems.map((candidate) => candidate.summary)).toEqual([
+      "comment 8",
+      "comment 9",
+      "Review changes requested: Please add a test.",
+    ]);
     // The body-less COMMENTED review is noise and is dropped.
-    expect(reviewItems).toHaveLength(1);
-    expect(reviewItems[0].actor).toBe("reviewer");
-    expect(reviewItems[0].summary).toBe("Review changes requested: Please add a test.");
+    expect(commentItems.map((candidate) => candidate.actor)).toEqual(["octo", "octo", "reviewer"]);
+    expect(commentItems.some((candidate) => candidate.actor === "quiet")).toBe(false);
   });
 
   test("commentsPerIssue of 0 surfaces no comment or review items", async () => {
@@ -207,7 +210,6 @@ describe("fetch cache pipeline", () => {
 
     // 0 means "none": slice(-0) must not fall back to returning everything.
     expect(result.items.filter((candidate) => candidate.kind === "pr_comment")).toHaveLength(0);
-    expect(result.items.filter((candidate) => candidate.kind === "pr_review_comment")).toHaveLength(0);
     expect(result.items.some((candidate) => candidate.kind === "pr_review_request")).toBe(true);
   });
 

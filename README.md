@@ -4,6 +4,35 @@ Local, read-only GitHub notification dashboard for PR-review and issue triage. I
 
 The app is built with SvelteKit, Tailwind CSS, and generated shadcn-svelte components. The GitHub integration remains read-only and uses your local `gh` CLI auth for the configured host.
 
+## Install with Homebrew (macOS)
+
+The quickest way to run the dashboard, no clone required:
+
+```bash
+brew install kreek/tap/ghe-watch
+```
+
+```bash
+gh auth login --hostname <your-host>   # once; skip for github.com
+```
+
+```bash
+ghe-watch init
+```
+
+```bash
+brew services start ghe-watch
+```
+
+`ghe-watch init` asks for your GitHub (Enterprise) host and optional local checkout roots, writes `~/.config/ghe-watch/env`, checks `gh` auth, and offers to install the login-time Chrome notification window. After `brew services start`, the dashboard is at `http://127.0.0.1:8765` and starts at every login.
+
+- **Configuration** lives in `~/.config/ghe-watch/env` — the same `KEY=value` format as `.env` below, and never any secrets (auth stays in `gh`). Edit it, then `brew services restart ghe-watch`. Precedence: process environment > config file > default.
+- **State** is kept under `~/.local/state/ghe-watch/`; server logs under Homebrew's `var/log/`.
+- **Notifications**: `ghe-watch install-window` / `ghe-watch uninstall-window` manage the Chrome window login item (window logs under `~/Library/Logs/ghe-watch/`); `ghe-watch open` opens the window right now; `ghe-watch status` shows the whole setup at a glance.
+- A custom review-prompt template can be placed at `~/.config/ghe-watch/review.md` (seeded by `init`).
+
+Everything below describes running from a clone — for development, or a non-Homebrew install.
+
 ## Prerequisites (macOS)
 
 Install these once. The always-on service and the notification window are macOS-specific (launchd plus Chrome).
@@ -103,9 +132,11 @@ scripts/install-window-launcher.sh     # one-time: open a Chrome app window at l
 scripts/uninstall-window-launcher.sh   # stop opening it
 ```
 
+Both scripts are thin delegators to the `ghe-watch` CLI (`bun run cli install-window` / `uninstall-window`), which renders the LaunchAgent plist in code (`src/cli/window-agent.ts`) — the same implementation the Homebrew install uses.
+
 - Opens `http://127.0.0.1:8765` as a chromeless Chrome app window (`chrome
 --app=...`), not a tab in your regular browsing window. Waits for the
-  backend to respond first.
+  backend to respond first (`ghe-watch open` is the command the agent runs).
 - **One-time step:** in that window, click "Enable notifications" in the
   dashboard header and allow the Chrome permission prompt. This is a
   per-Chrome-profile permission and persists across restarts.
@@ -118,6 +149,8 @@ scripts/uninstall-window-launcher.sh   # stop opening it
 ## Configuration
 
 All configuration is environment-driven (see `loadConfig()` in `src/config.ts`). Copy `.env.example` to `.env` and uncomment what you need; Bun auto-loads `.env` for both `bun run dev` and `bun run serve`. **No secrets belong in `.env`**: GitHub auth comes from `gh`.
+
+Homebrew installs read the same variables from `~/.config/ghe-watch/env` instead (see [Install with Homebrew](#install-with-homebrew-macos)); precedence everywhere is process environment > config file > default. Path defaults also differ by mode: from a clone, state lives in `.local-state/` and the review prompt in `prompts/review.md`; installed, they move to `~/.local/state/ghe-watch/` and `~/.config/ghe-watch/review.md`.
 
 - `GHE_WATCH_HOST`: target GitHub (Enterprise) host, passed to `gh` as `GH_HOST`. Defaults to `github.com`.
 - `GHE_WATCH_REPOS`: comma-separated **exact** repo names used to filter the feed. Each entry matches either the bare name (`api`) or the fully-qualified `owner/repo` (`acme/api`). Empty by default. Exact (not prefix) matching lets you watch one repo while omitting a similarly-named sibling.
@@ -198,3 +231,20 @@ from linting and formatting, matching the existing `tsconfig.json` exclusion.
 
 CI (`.github/workflows/ci.yml`) runs the same checks plus `bun run build` on
 every push and pull request.
+
+## Releasing
+
+Pushing a `v*` tag runs `.github/workflows/release.yml` on macOS: the full
+gate, a production build, `scripts/package-artifact.sh` (a self-contained
+`libexec/` tarball — bundled server, bundled `ghe-watch` CLI, review-prompt
+seed), then `scripts/smoke-artifact.sh`, which boots the tarball from a clean
+directory and **fails the release** unless loopback serves 200, a foreign
+`Host` header gets 403, and state lands in the XDG state dir. On success it
+publishes a GitHub release and pushes the rendered formula
+(`packaging/homebrew/ghe-watch.rb`) to `kreek/homebrew-tap` using the
+`TAP_PUSH_TOKEN` repo secret (a fine-grained PAT with `contents: write` on the
+tap; without the secret the tap step is skipped with a warning).
+
+```bash
+git tag v0.2.0 && git push origin v0.2.0
+```

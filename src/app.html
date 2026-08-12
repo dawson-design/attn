@@ -1,7 +1,13 @@
 <!doctype html>
-<html lang="en" class="dark">
+<html lang="en">
   <head>
     <meta charset="utf-8" />
+    <script>
+      // Applied before first paint to avoid a flash of the wrong theme.
+      const stored = localStorage.getItem("theme");
+      const dark = stored ? stored === "dark" : matchMedia("(prefers-color-scheme: dark)").matches;
+      if (dark) document.documentElement.classList.add("dark");
+    </script>
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     %sveltekit.head%
   </head>

@@ -1,5 +1,6 @@
-export type ItemKind =
-  "pr_review_request" | "pr_comment" | "pr_review_comment" | "issue_assigned" | "issue_mention" | "issue_comment";
+// Review submissions are `pr_comment` too: they differ only in where `gh` keeps
+// them, and the verdict they carry survives in the item summary.
+export type ItemKind = "pr_review_request" | "pr_comment" | "issue_assigned" | "issue_mention" | "issue_comment";
 
 export type Lifecycle = "new" | "unread" | "active" | "acknowledged";
 
@@ -22,6 +23,10 @@ export interface Config {
   // macOS app to open the review terminal in (e.g. "Terminal", "iTerm",
   // "Ghostty"). Unset uses the system default handler for .command files.
   terminalApp?: string;
+  // Extra Host-header names accepted by the DNS-rebinding guard, beyond
+  // loopback (GHE_WATCH_ALLOWED_HOSTS). Optional for test ergonomics —
+  // loadConfig always populates it, and hooks.server.ts treats unset as [].
+  allowedHosts?: string[];
   limit: number;
   issueLimit: number;
   issueCommentItemLimit: number;

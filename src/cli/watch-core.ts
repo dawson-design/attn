@@ -178,12 +178,11 @@ function lifecycleRank(lifecycle: WatchItem["lifecycle"]): number {
 
 function kindRank(kind: WatchItem["kind"]): number {
   if (kind === "pr_review_request") return 0;
-  if (kind === "pr_review_comment") return 1;
-  if (kind === "pr_comment") return 2;
-  if (kind === "issue_assigned") return 3;
-  if (kind === "issue_mention") return 4;
-  if (kind === "issue_comment") return 5;
-  return 6;
+  if (kind === "pr_comment") return 1;
+  if (kind === "issue_assigned") return 2;
+  if (kind === "issue_mention") return 3;
+  if (kind === "issue_comment") return 4;
+  return 5;
 }
 
 function rateLimitUntil(cache: GithubCache): number {

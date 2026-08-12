@@ -1,0 +1,93 @@
+name: Release
+
+# Tag-driven release: pushing v* runs the full gate on macOS (the platform the
+# packaged artifact actually targets, unlike CI's ubuntu runner), packages the
+# self-contained tarball, smoke-tests the artifact itself — including the
+# loopback-only + foreign-Host-403 security invariants, which are a hard
+# release gate — publishes a GitHub release, and bumps the Homebrew tap.
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: macos-latest
+    timeout-minutes: 30
+
+    steps:
+      # Actions pinned to a full commit SHA (a mutable tag could be retagged to
+      # run malicious code in a job that holds contents:write and TAP_PUSH_TOKEN).
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: latest
+
+      # The tag flows into shell commands (package/smoke/sed), so reject anything
+      # that is not a clean version tag before it is used anywhere.
+      - name: Validate tag name
+        run: |
+          case "$GITHUB_REF_NAME" in
+            v[0-9]*) [ -z "$(printf '%s' "$GITHUB_REF_NAME" | tr -d 'A-Za-z0-9.+_-')" ] || { echo "Bad tag: $GITHUB_REF_NAME" >&2; exit 1; } ;;
+            *) echo "Tag must look like v1.2.3: $GITHUB_REF_NAME" >&2; exit 1 ;;
+          esac
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      # shellcheck is not guaranteed on macOS runners the way it is on ubuntu.
+      - name: Ensure shellcheck
+        run: command -v shellcheck >/dev/null || brew install shellcheck
+
+      - name: Full gate
+        run: bun run ci
+
+      - name: Build
+        run: bun run build
+
+      - name: Package artifact
+        run: scripts/package-artifact.sh "$GITHUB_REF_NAME"
+
+      # Boots the tarball from a clean dir (no node_modules) and fails the
+      # release if loopback 200 / foreign-Host 403 / XDG state placement break.
+      - name: Smoke test artifact
+        run: scripts/smoke-artifact.sh "dist/ghe-watch-$GITHUB_REF_NAME.tar.gz"
+
+      - name: Create GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" dist/*.tar.gz dist/*.sha256 \
+            --title "ghe-watch $GITHUB_REF_NAME" \
+            --generate-notes
+
+      # Renders packaging/homebrew/ghe-watch.rb (the template of record) with
+      # the released tarball's URL + sha256 and pushes it to the personal tap.
+      # TAP_PUSH_TOKEN is a repo secret: a fine-grained PAT with contents:write
+      # on kreek/homebrew-tap. Skipped with a notice when the secret is absent.
+      - name: Update Homebrew tap
+        env:
+          TAP_PUSH_TOKEN: ${{ secrets.TAP_PUSH_TOKEN }}
+        run: |
+          if [ -z "$TAP_PUSH_TOKEN" ]; then
+            echo "::warning::TAP_PUSH_TOKEN not set; skipping tap update"
+            exit 0
+          fi
+          url="https://github.com/kreek/ghe-notification-watch/releases/download/$GITHUB_REF_NAME/ghe-watch-$GITHUB_REF_NAME.tar.gz"
+          sha="$(cut -d' ' -f1 dist/*.sha256)"
+          # Pass the token as an http.extraHeader instead of embedding it in the
+          # remote URL, so it is never written into tap/.git/config on the runner.
+          auth="AUTHORIZATION: basic $(printf 'x-access-token:%s' "$TAP_PUSH_TOKEN" | base64 | tr -d '\n')"
+          git -c "http.extraHeader=$auth" clone --depth 1 "https://github.com/kreek/homebrew-tap.git" tap
+          mkdir -p tap/Formula
+          sed -e "s|__URL__|$url|" -e "s|__SHA256__|$sha|" \
+            packaging/homebrew/ghe-watch.rb > tap/Formula/ghe-watch.rb
+          cd tap
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add Formula/ghe-watch.rb
+          git commit -m "ghe-watch $GITHUB_REF_NAME"
+          git -c "http.extraHeader=$auth" push

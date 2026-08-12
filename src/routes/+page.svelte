@@ -7,6 +7,9 @@
   import ChevronDownIcon from "@lucide/svelte/icons/chevron-down";
   import ChevronRightIcon from "@lucide/svelte/icons/chevron-right";
   import RefreshCwIcon from "@lucide/svelte/icons/refresh-cw";
+  import MoonIcon from "@lucide/svelte/icons/moon";
+  import SunIcon from "@lucide/svelte/icons/sun";
+  import { isDark, toggleTheme } from "$lib/theme";
   import { Badge } from "$lib/components/ui/badge";
   import { Button } from "$lib/components/ui/button";
   import { Input } from "$lib/components/ui/input";
@@ -33,6 +36,7 @@
   let cacheStatus = $state<Snapshot["cacheStatus"]>(initialSnapshot.cacheStatus || "stale");
   let nextRefreshAllowedAt = $state(initialSnapshot.nextRefreshAllowedAt || "");
   let refreshing = $state(false);
+  let darkMode = $state(true);
   let query = $state("");
   let kind = $state("");
   let showAcknowledged = $state(false);
@@ -107,6 +111,7 @@
   });
 
   onMount(() => {
+    darkMode = isDark();
     notificationPermission = "Notification" in window ? Notification.permission : "denied";
     // Restore view preferences (the always-on window reloads, so these should
     // persist). Loading here, post-hydration, avoids an SSR mismatch.
@@ -355,20 +360,19 @@
 
   function typeClass(item: WatchItem): string {
     if (item.kind === "pr_review_request") return "border-l-sky-500";
-    if (item.kind === "pr_comment" || item.kind === "pr_review_comment") return "border-l-violet-500";
+    if (item.kind === "pr_comment") return "border-l-violet-500";
     if (item.kind === "issue_assigned") return "border-l-amber-500";
     if (item.kind === "issue_mention") return "border-l-emerald-500";
     return "border-l-rose-500";
   }
 
   function typeBadgeClass(item: WatchItem): string {
-    if (item.kind === "pr_review_request") return "border-sky-500/20 bg-sky-500/15 text-sky-200";
-    if (item.kind === "pr_comment" || item.kind === "pr_review_comment") {
-      return "border-violet-500/20 bg-violet-500/15 text-violet-200";
-    }
-    if (item.kind === "issue_assigned") return "border-amber-500/20 bg-amber-500/15 text-amber-200";
-    if (item.kind === "issue_mention") return "border-emerald-500/20 bg-emerald-500/15 text-emerald-200";
-    return "border-rose-500/20 bg-rose-500/15 text-rose-200";
+    if (item.kind === "pr_review_request") return "border-sky-500/20 bg-sky-500/15 text-sky-700 dark:text-sky-200";
+    if (item.kind === "pr_comment") return "border-violet-500/20 bg-violet-500/15 text-violet-700 dark:text-violet-200";
+    if (item.kind === "issue_assigned") return "border-amber-500/20 bg-amber-500/15 text-amber-700 dark:text-amber-200";
+    if (item.kind === "issue_mention")
+      return "border-emerald-500/20 bg-emerald-500/15 text-emerald-700 dark:text-emerald-200";
+    return "border-rose-500/20 bg-rose-500/15 text-rose-700 dark:text-rose-200";
   }
 
   function notificationTypeLabel(value: string): string {
@@ -376,7 +380,6 @@
       "": "All",
       pr_review_request: "PR review",
       pr_comment: "PR comment",
-      pr_review_comment: "PR review comment",
       issue_assigned: "Issue assigned",
       issue_mention: "Issue mention",
       issue_comment: "Issue comment",
@@ -412,6 +415,13 @@
         <BellIcon data-icon="inline-start" />
         {notificationLabel}
       </Button>
+      <Button variant="outline" size="icon" aria-label="Toggle theme" onclick={() => (darkMode = toggleTheme())}>
+        {#if darkMode}
+          <SunIcon />
+        {:else}
+          <MoonIcon />
+        {/if}
+      </Button>
     </div>
   </header>
 
@@ -434,7 +444,6 @@
             <Select.Item value="">All</Select.Item>
             <Select.Item value="pr_review_request">PR review</Select.Item>
             <Select.Item value="pr_comment">PR comment</Select.Item>
-            <Select.Item value="pr_review_comment">PR review comment</Select.Item>
             <Select.Item value="issue_assigned">Issue assigned</Select.Item>
             <Select.Item value="issue_mention">Issue mention</Select.Item>
             <Select.Item value="issue_comment">Issue comment</Select.Item>
@@ -450,10 +459,12 @@
     </section>
 
     {#if errors.length}
-      <section class="mb-3 rounded-lg border border-destructive/50 bg-destructive/10 p-3 text-sm text-red-200">
-        <strong class="text-red-100">Fetch warnings</strong>
+      <section
+        class="mb-3 rounded-lg border border-destructive/50 bg-destructive/10 p-3 text-sm text-red-700 dark:text-red-200"
+      >
+        <strong class="text-red-800 dark:text-red-100">Fetch warnings</strong>
         {#each errors as error (error)}
-          <p class="m-0 mt-1 text-red-200">{error}</p>
+          <p class="m-0 mt-1 text-red-700 dark:text-red-200">{error}</p>
         {/each}
       </section>
     {/if}
@@ -528,7 +539,7 @@
             {#each tableItems as item (item.id)}
               <Table.Row
                 class="border-l-[3px] {item.lifecycle === 'acknowledged'
-                  ? 'border-l-muted-foreground/30 bg-black opacity-50 grayscale'
+                  ? 'border-l-muted-foreground/30 bg-muted opacity-50 grayscale dark:bg-black'
                   : typeClass(item)}"
               >
                 <Table.Cell class="overflow-hidden px-1 py-2 align-top">
@@ -556,7 +567,10 @@
                       {item.repoName} #{item.number}
                     </span>
                     {#if isDependencyBotItem(item)}
-                      <Badge variant="outline" class="shrink-0 border-orange-500/30 bg-orange-500/15 text-orange-300">
+                      <Badge
+                        variant="outline"
+                        class="shrink-0 border-orange-500/30 bg-orange-500/15 text-orange-700 dark:text-orange-300"
+                      >
                         dependabot
                       </Badge>
                     {/if}

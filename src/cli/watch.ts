@@ -400,7 +400,6 @@ function truncate(value: string, width: number): string {
 
 function kindLabel(kind: WatchItem["kind"]): string {
   if (kind === "pr_review_request") return "pr review";
-  if (kind === "pr_review_comment") return "pr review comment";
   return kind.replaceAll("_", " ");
 }
 
@@ -438,7 +437,7 @@ function color(name: ColorName, value: string): string {
 
 function kindColor(kind: WatchItem["kind"]): ColorName {
   if (kind === "pr_review_request") return "green";
-  if (kind === "pr_comment" || kind === "pr_review_comment") return "purple";
+  if (kind === "pr_comment") return "purple";
   if (kind === "issue_assigned") return "yellow";
   if (kind === "issue_mention") return "green";
   if (kind === "issue_comment") return "red";
