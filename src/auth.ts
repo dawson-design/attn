@@ -3,28 +3,25 @@
 //
 // - Bearer token (agent-token.ts): `attn mcp` and `attn open`.
 // - Session cookie: the browser. `attn open` asks the server for a one-time
-//   login code and opens `/#code=<code>`; the locked page trades the code for
-//   the cookie. The token itself never appears in a URL or a process argument,
-//   which other local accounts can read with `ps`.
+//   login code and opens `/#code=<code>` through an owner-only file; the
+//   locked page trades the code for a random, revocable session (sessions.ts).
+//   Neither the token nor a code appears in a process argument, which other
+//   local accounts can read with `ps`.
 // - Server proof: before a client sends the token, it checks that the process
 //   on the port knows the token, so a squatter on the port after attn stops
-//   never receives it.
+//   does not receive it. The check and the request are separate connections,
+//   so a squatter that binds in the instant between them could; that needs
+//   attn to stop at that moment.
 import { createHmac, randomBytes } from "node:crypto";
-import { bearerMatches, safeEqual } from "./agent-token";
+import { bearerMatches } from "./agent-token";
 
 export const SESSION_COOKIE = "attn_session";
-export const SESSION_MAX_AGE_SECONDS = 60 * 60 * 24 * 365;
 export const LOGIN_CODE_TTL_MS = 60_000;
 const MAX_OUTSTANDING_CODES = 20;
 const NONCE_PATTERN = /^[A-Za-z0-9_-]{16,128}$/;
 
 function hmac(token: string, label: string): string {
   return createHmac("sha256", token).update(label).digest("base64url");
-}
-
-// Derived from the token, so it changes when the token is rotated.
-export function sessionCookieValue(token: string): string {
-  return hmac(token, "attn-browser-session");
 }
 
 export function serverProof(token: string, nonce: string): string {
@@ -43,9 +40,9 @@ export function isAuthenticated(
   token: string,
   authorization: string | null,
   sessionCookie: string | undefined,
+  sessions: { has(id: string | undefined): boolean },
 ): boolean {
-  if (bearerMatches(token, authorization)) return true;
-  return sessionCookie !== undefined && safeEqual(sessionCookieValue(token), sessionCookie);
+  return bearerMatches(token, authorization) || sessions.has(sessionCookie);
 }
 
 // Paths served without a credential: the hashed app bundle (no data in it),

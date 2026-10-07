@@ -131,6 +131,34 @@ check "code reuse rejected" 401 "$(session "-s" "$CODE")"
 grep -q attn_session "$JAR" || { echo "FAIL: no session cookie set" >&2; exit 1; }
 check "cookie reads items" 200 "$(code_of -b "$JAR" "$BASE_URL/api/items")"
 check "cookie page" 200 "$(code_of -b "$JAR" "$BASE_URL/")"
+check "cookie cannot mint login codes" 403 \
+    "$(code_of -b "$JAR" -X POST -H 'Sec-Fetch-Site: same-origin' "$BASE_URL/api/login-code")"
+grep attn_session "$JAR" | grep -vq "$TOKEN" || { echo "FAIL: session cookie contains the token" >&2; exit 1; }
+check "sessions.json mode" 600 "$(stat -f '%Lp' "$WORK/state/attn/sessions.json")"
+
+# `attn signout` revokes the session.
+env -i HOME="$WORK/home" PATH="$PATH" ATTN_HOME="$WORK/libexec" \
+    XDG_CONFIG_HOME="$WORK/config" XDG_STATE_HOME="$WORK/state" ATTN_PORT="$PORT" \
+    bun "$WORK/libexec/cli.js" signout >/dev/null
+check "cookie rejected after signout" 401 "$(code_of -b "$JAR" "$BASE_URL/api/items")"
+
+# SIGTERM ends open event streams, so the server exits promptly.
+curl -s -m 30 -H "Authorization: Bearer $TOKEN" "$BASE_URL/events" >/dev/null &
+STREAM_PID=$!
+sleep 1
+kill -TERM "$SERVER_PID"
+exited=""
+for _ in $(seq 1 20); do
+    if ! kill -0 "$SERVER_PID" 2>/dev/null; then
+        exited=1
+        break
+    fi
+    sleep 0.5
+done
+kill "$STREAM_PID" 2>/dev/null || true
+[[ -n "$exited" ]] || { echo "FAIL: server still running 10s after SIGTERM with an open event stream" >&2; exit 1; }
+SERVER_PID=""
+echo "ok: server exited after SIGTERM with an open event stream"
 
 [[ ! -e "$WORK/.local-state" ]] || { echo "FAIL: cwd-relative .local-state was created" >&2; exit 1; }
 echo "ok: nothing written relative to cwd"

@@ -22,19 +22,30 @@ export function newAgentToken(): string {
   return randomBytes(32).toString("base64url");
 }
 
+export class InvalidAgentTokenError extends Error {
+  constructor(path: string) {
+    super(`${path} holds no valid attn token; delete it and restart attn`);
+  }
+}
+
+// Undefined when the file does not exist yet; throws when it exists but is
+// unusable, so callers report the real problem instead of "not running".
 export async function readAgentToken(path: string): Promise<string | undefined> {
   let raw: string;
   try {
     raw = await readFile(path, "utf8");
-  } catch {
-    return undefined;
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return undefined;
+    throw error;
   }
+  let parsed: { token?: unknown };
   try {
-    const parsed = JSON.parse(raw) as { token?: unknown };
-    return typeof parsed.token === "string" && parsed.token.length >= 32 ? parsed.token : undefined;
+    parsed = JSON.parse(raw) as { token?: unknown };
   } catch {
-    return undefined;
+    throw new InvalidAgentTokenError(path);
   }
+  if (typeof parsed.token !== "string" || parsed.token.length < 32) throw new InvalidAgentTokenError(path);
+  return parsed.token;
 }
 
 // Returns the existing token, or creates one. The token is written to a temp
@@ -55,7 +66,7 @@ export async function loadOrCreateAgentToken(path: string): Promise<string> {
     if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
     const raced = await readAgentToken(path);
     if (raced) return raced;
-    throw new Error(`${path} exists but holds no valid token; delete it and restart attn`, { cause: error });
+    throw new InvalidAgentTokenError(path);
   } finally {
     await unlink(tmp).catch(() => undefined);
   }

@@ -13,6 +13,7 @@
 //   uninstall-window   remove it
 //   open [--print]     sign in and open the Chrome app window (used by the
 //                      LaunchAgent); --print prints a one-time link instead
+//   signout            revoke every browser session
 //   status [--json]    show config paths, server/agent/auth state; --json
 //                      prints waiting-item counts from the last snapshot
 //   watch [options]    terminal UI (src/cli/watch.ts)
@@ -34,15 +35,17 @@ import {
   writeFileSync,
 } from "node:fs";
 import { homedir, userInfo } from "node:os";
-import { dirname, resolve } from "node:path";
+import { randomBytes } from "node:crypto";
+import { dirname, join, resolve } from "node:path";
 import { createInterface } from "node:readline/promises";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { StdioServerTransport } from "@modelcontextprotocol/server/stdio";
 import packageJson from "../../package.json" with { type: "json" };
 import { agentCredentialsPath } from "../agent-token";
 import { httpAttnClient } from "../attn-client";
 import { loadConfig } from "../config";
 import { createAttnMcpServer } from "../mcp/server";
+import { writePrivateFile } from "../private-file";
 import { resolveAppPaths, type AppPaths } from "../paths";
 import { loadSnapshot } from "../snapshot-cache";
 import { loadState } from "../state";
@@ -102,6 +105,7 @@ Commands:
   uninstall-window   Stop opening it
   open [--print]     Sign in and open the dashboard in a Chrome app window.
                      --print prints a one-time sign-in link for any browser
+  signout            Sign every browser out of the dashboard
   status [--json]    Show config paths, server, window agent, and gh auth state.
                      --json prints waiting-item counts from the last snapshot
                      (no network calls)
@@ -227,10 +231,31 @@ async function serverResponds(url: string): Promise<boolean> {
   }
 }
 
+// A page that forwards to the sign-in link. Chrome keeps its --app URL in its
+// process arguments, which every local account can read with `ps`, so the
+// window opens this owner-only file instead of the link itself.
+export function signInTrampoline(signInUrl: string): string {
+  const attribute = signInUrl.replace(/&/g, "&amp;").replace(/"/g, "&quot;").replace(/</g, "&lt;");
+  return `<!doctype html><meta charset="utf-8"><meta http-equiv="refresh" content="0;url=${attribute}"><script>location.replace(${JSON.stringify(signInUrl).replace(/</g, "\\u003c").replace(/>/g, "\\u003e")})</script>\n`;
+}
+
+const TRAMPOLINE_LIFETIME_MS = 15_000;
+
+async function openSignInWindow(stateFile: string, signInUrl: string): Promise<void> {
+  const trampoline = join(dirname(stateFile), `open-${randomBytes(12).toString("hex")}.html`);
+  await writePrivateFile(trampoline, signInTrampoline(signInUrl));
+  try {
+    console.error("==> Opening dashboard app window");
+    run("open", ["-na", "Google Chrome", "--args", `--app=${pathToFileURL(trampoline).href}`]);
+    // Give Chrome time to read the file; the code inside expires in 60 seconds anyway.
+    await new Promise((resolveSleep) => setTimeout(resolveSleep, TRAMPOLINE_LIFETIME_MS));
+  } finally {
+    rmSync(trampoline, { force: true });
+  }
+}
+
 // Both LaunchAgents are RunAtLoad with no ordering guarantee between them, so
 // wait for the backend before opening the window (any HTTP response counts).
-// The URL carries a one-time login code, never the token: Chrome keeps its
-// --app URL in its process arguments, which every local account can read.
 async function openWindow(print: boolean): Promise<void> {
   if (!print) requireDarwin("open");
   const config = loadConfig();
@@ -252,8 +277,21 @@ async function openWindow(print: boolean): Promise<void> {
     console.log(signInUrl);
     return;
   }
-  console.error("==> Opening dashboard app window");
-  run("open", ["-na", "Google Chrome", "--args", `--app=${signInUrl}`]);
+  await openSignInWindow(config.stateFile, signInUrl);
+}
+
+// --- signout ------------------------------------------------------------------
+
+async function signOut(): Promise<void> {
+  const config = loadConfig();
+  try {
+    const revoked = await httpAttnClient(agentCredentialsPath(config.stateFile), config.port).signOutAll();
+    console.log(
+      `==> Signed out ${revoked} browser session${revoked === 1 ? "" : "s"}. Run \`attn open\` to sign in again.`,
+    );
+  } catch (error) {
+    fail(error instanceof Error ? error.message : String(error));
+  }
 }
 
 // --- init ---------------------------------------------------------------------
@@ -493,6 +531,8 @@ async function main(argv: string[]): Promise<void> {
       return openWindow(invocation.print);
     case "mcp":
       return mcp();
+    case "signout":
+      return signOut();
     case "setup":
       if (invocation.target !== "claude-desktop")
         fail(`unknown setup target: ${invocation.target ?? "(none)"}\n\n${HELP}`);

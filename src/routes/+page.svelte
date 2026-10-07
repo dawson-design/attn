@@ -31,6 +31,8 @@
 
   let items = $state<WatchItem[]>(initialSnapshot.items || []);
   let errors = $state<string[]>(initialSnapshot.errors || []);
+  // Set when the page finds a service worker; attn never installs one.
+  let serviceWorkerWarning = $state(false);
   let connection = $state("connecting");
   let lastUpdated = $state(formatHeaderTime(initialSnapshot.generatedAt));
   let cacheStatus = $state<Snapshot["cacheStatus"]>(initialSnapshot.cacheStatus || "stale");
@@ -120,6 +122,14 @@
     const savedAck = localStorage.getItem("attn:showAcknowledged");
     if (savedAck != null) showAcknowledged = savedAck === "true";
     prefsLoaded = true;
+    // attn installs no service worker. One here was registered by another
+    // program that held this port while attn was stopped, and it could read
+    // the dashboard. Remove it and tell the user to revoke sessions.
+    void navigator.serviceWorker?.getRegistrations().then((registrations) => {
+      if (registrations.length === 0) return;
+      for (const registration of registrations) void registration.unregister();
+      serviceWorkerWarning = true;
+    });
     const source = new EventSource("/events");
     source.addEventListener("open", () => {
       connection = "connected";
@@ -457,6 +467,19 @@
         </label>
       </div>
     </section>
+
+    {#if serviceWorkerWarning}
+      <section
+        role="alert"
+        class="mb-3 rounded-lg border border-destructive/50 bg-destructive/10 p-3 text-sm text-red-700 dark:text-red-200"
+      >
+        <strong class="text-red-800 dark:text-red-100">Removed a service worker attn did not install</strong>
+        <p class="m-0 mt-1">
+          Another program may have used this port while attn was stopped. Run <code>attn signout</code>, then
+          <code>attn open</code>, to replace every browser session.
+        </p>
+      </section>
+    {/if}
 
     {#if errors.length}
       <section

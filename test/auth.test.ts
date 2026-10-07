@@ -7,26 +7,27 @@ import {
   LOGIN_CODE_TTL_MS,
   LoginCodes,
   serverProof,
-  sessionCookieValue,
   wantsLockedPage,
 } from "../src/auth";
 
 const token = newAgentToken();
 
 describe("isAuthenticated", () => {
-  test("accepts the bearer token or the session cookie derived from it", () => {
-    expect(isAuthenticated(token, `Bearer ${token}`, undefined)).toBe(true);
-    expect(isAuthenticated(token, null, sessionCookieValue(token))).toBe(true);
+  const sessions = { has: (id: string | undefined) => id === "live-session" };
+
+  test("accepts the bearer token or a live session", () => {
+    expect(isAuthenticated(token, `Bearer ${token}`, undefined, sessions)).toBe(true);
+    expect(isAuthenticated(token, null, "live-session", sessions)).toBe(true);
   });
 
   test("rejects requests with no credential, whatever browser headers they claim", () => {
     // Sec-Fetch-Site and Origin are not inputs here: any local process can fake them.
-    expect(isAuthenticated(token, null, undefined)).toBe(false);
+    expect(isAuthenticated(token, null, undefined, sessions)).toBe(false);
   });
 
-  test("rejects a cookie for another token and the raw token as a cookie", () => {
-    expect(isAuthenticated(token, null, sessionCookieValue(newAgentToken()))).toBe(false);
-    expect(isAuthenticated(token, null, token)).toBe(false);
+  test("rejects an unknown session and the raw token as a cookie", () => {
+    expect(isAuthenticated(token, null, "revoked-session", sessions)).toBe(false);
+    expect(isAuthenticated(token, null, token, sessions)).toBe(false);
   });
 });
 

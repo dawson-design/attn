@@ -237,8 +237,17 @@ export async function createService(deps: ServiceDeps = {}): Promise<DashboardSe
       await launchTerminal(path, config.terminalApp);
       return { ok: true };
     },
+    // Stops polling and ends every event stream, so the server can exit.
     dispose: () => {
       if (interval) clearInterval(interval);
+      for (const client of clients) {
+        try {
+          client.close();
+        } catch {
+          // Already closed by the browser.
+        }
+      }
+      clients.clear();
     },
   };
 }

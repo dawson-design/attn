@@ -1,18 +1,34 @@
+import { dev } from "$app/environment";
 import { json, text, type Handle, type ServerInit } from "@sveltejs/kit";
 import { dirname } from "node:path";
 import { agentCredentialsPath, bearerMatches, loadOrCreateAgentToken } from "./agent-token";
 import { isAuthenticated, isPublicRequest, SESSION_COOKIE, wantsLockedPage } from "./auth";
 import { loadConfig } from "./config";
 import { isAllowedHost, isAllowedRequestOrigin } from "./host-guard";
-import { serverToken, setServerToken } from "./lib/server/auth-state";
+import { serverToken, sessions, setAuthState } from "./lib/server/auth-state";
+import { getDashboardService } from "./lib/server/dashboard";
 import { LOCKED_PAGE } from "./locked-page";
 import { ensurePrivateDir } from "./private-file";
+import { SessionStore, sessionsPath } from "./sessions";
 
 export const init: ServerInit = async () => {
   const config = loadConfig();
   // Tighten a state directory created before files were written owner-only.
   await ensurePrivateDir(dirname(config.stateFile));
-  setServerToken(await loadOrCreateAgentToken(agentCredentialsPath(config.stateFile)));
+  setAuthState({
+    token: await loadOrCreateAgentToken(agentCredentialsPath(config.stateFile)),
+    sessions: await SessionStore.load(sessionsPath(config.stateFile)),
+  });
+  // adapter-node stops listening on SIGTERM/SIGINT but waits for open
+  // connections, and the dashboard's event streams never end on their own.
+  // Close them and stop polling so the process exits and a restart leaves the
+  // port free only briefly. Only in production: under vite, a SIGINT listener
+  // here would replace the default exit.
+  if (!dev) {
+    for (const signal of ["SIGTERM", "SIGINT"] as const) {
+      process.once(signal, () => void getDashboardService().then((service) => service.dispose()));
+    }
+  }
 };
 
 // Reject requests whose Host header is not a loopback (or explicitly allowed)
@@ -33,15 +49,15 @@ export const handle: Handle = async ({ event, resolve }) => {
   }
 
   // Every other local account can reach loopback, and request headers are easy
-  // to fake, so data and actions need the token (bearer) or the session cookie
-  // derived from it. See auth.ts.
+  // to fake, so data and actions need the token (bearer) or a browser session
+  // cookie (sessions.ts). See auth.ts.
   const request = event.request;
   const { pathname } = event.url;
   const token = serverToken();
   const authorization = request.headers.get("authorization");
   if (
     !isPublicRequest(request.method, pathname) &&
-    !isAuthenticated(token, authorization, event.cookies.get(SESSION_COOKIE))
+    !isAuthenticated(token, authorization, event.cookies.get(SESSION_COOKIE), sessions())
   ) {
     if (wantsLockedPage(request.method, pathname)) {
       return new Response(LOCKED_PAGE, { status: 401, headers: { "Content-Type": "text/html; charset=utf-8" } });

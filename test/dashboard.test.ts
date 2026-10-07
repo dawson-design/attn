@@ -687,3 +687,23 @@ describe("dashboard service startup and failure handling", () => {
     service.dispose();
   });
 });
+
+describe("dispose", () => {
+  test("ends every event stream so the server can exit", async () => {
+    const config = await tempConfig();
+    const service = await createService({
+      config,
+      runner: makeRunner(() => []).runner,
+      discoverRepos: async () => new Map(),
+      startPolling: false,
+    });
+    let closed = 0;
+    const client = {
+      enqueue: () => undefined,
+      close: () => (closed += 1),
+    } as unknown as ReadableStreamDefaultController<string>;
+    service.addClient(client);
+    service.dispose();
+    expect(closed).toBe(1);
+  });
+});

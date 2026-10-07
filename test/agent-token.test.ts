@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import {
   agentCredentialsPath,
   bearerMatches,
+  InvalidAgentTokenError,
   loadOrCreateAgentToken,
   newAgentToken,
   readAgentToken,
@@ -58,19 +59,23 @@ describe("agent token file", () => {
     expect(tokens[0]).toBe(tokens[1]);
   });
 
-  test("reads a missing, malformed, or short token as none", async () => {
+  test("reads a missing file as no token yet", async () => {
     dir = await mkdtemp(`${tmpdir()}/attn-agent-`);
     expect(await readAgentToken(`${dir}/missing.json`)).toBeUndefined();
+  });
+
+  test("reports a malformed or short token instead of treating it as missing", async () => {
+    dir = await mkdtemp(`${tmpdir()}/attn-agent-`);
     await writeFile(`${dir}/bad.json`, "{not json");
-    expect(await readAgentToken(`${dir}/bad.json`)).toBeUndefined();
+    await expect(readAgentToken(`${dir}/bad.json`)).rejects.toBeInstanceOf(InvalidAgentTokenError);
     await writeFile(`${dir}/short.json`, JSON.stringify({ token: "abc" }));
-    expect(await readAgentToken(`${dir}/short.json`)).toBeUndefined();
+    await expect(readAgentToken(`${dir}/short.json`)).rejects.toThrow("delete it and restart attn");
   });
 
   test("refuses to replace a corrupt file", async () => {
     dir = await mkdtemp(`${tmpdir()}/attn-agent-`);
     await mkdir(dir, { recursive: true });
     await writeFile(`${dir}/agent.json`, "{not json");
-    await expect(loadOrCreateAgentToken(`${dir}/agent.json`)).rejects.toThrow("delete it and restart attn");
+    await expect(loadOrCreateAgentToken(`${dir}/agent.json`)).rejects.toBeInstanceOf(InvalidAgentTokenError);
   });
 });

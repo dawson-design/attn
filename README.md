@@ -49,12 +49,16 @@ rm ~/Library/LaunchAgents/com.$(id -un).ghe-notification-watch*.plist
 
 Every account on your Mac can reach `127.0.0.1`, so the server refuses requests that do not carry your attn token. The token is a random value the server creates on first start, in `agent.json` beside the state file. Only your account can read it: the file is mode 0600 in a 0700 directory, and the state files beside it are 0600 too.
 
-- `attn open` asks the server for a one-time sign-in code and opens the dashboard with it. The page trades the code for a session cookie and drops it from the address bar. Codes work once, for 60 seconds. The window login item runs `attn open` at every login.
+- `attn open` asks the server for a one-time sign-in code and opens the dashboard with it, through a temporary owner-only file so the code never appears in a process listing. The page trades the code for a session cookie and drops it from the address bar. Codes work once, for 60 seconds. The window login item runs `attn open` at every login.
 - `attn open --print` prints a one-time sign-in link instead, for any browser.
 - Opening `http://127.0.0.1:8765` without signing in shows a page that says to run `attn open`.
-- The session cookie lasts a year and survives server restarts. To sign every browser out and replace the token, delete `agent.json` and restart the server.
+- Each sign-in gets its own random session. The server stores only a hash of it, sessions last 30 days and survive server restarts, and `attn signout` ends all of them. To also replace the token, delete `agent.json` and restart the server.
 
-`attn mcp` and `attn open` read the token from `agent.json` and send it as a bearer header. Before sending it, they check that the process on the port can prove it knows the token, so a different program listening on the port while attn is stopped never receives it.
+`attn mcp` and `attn open` read the token from `agent.json` and send it as a bearer header. Before sending it, they check that the process on the port can prove it knows the token, so a different program listening on the port while attn is stopped does not receive it.
+
+### What sign-in does not cover
+
+attn's port is an ordinary TCP port. While attn is stopped, a program run by another account on your Mac can listen on it, and a browser that visits it then sends that program your session cookie (cookies are not separated by port on `127.0.0.1`). Such a program could also install a service worker that keeps reading the dashboard after attn returns. The dashboard removes any service worker it finds and shows a warning, but a worker written to hide itself could suppress that. If you share your Mac with accounts you do not trust, keep attn running, and run `attn signout` and `attn open` after any time it was stopped. A single-user Mac is not affected.
 
 ## Terminal UI
 
@@ -272,7 +276,7 @@ The review actions (the dashboard's review buttons, `attn watch`, and the `attn_
 
 The app is read-only against GitHub. It uses existing `gh` auth and allowlists only read commands. It rejects GitHub mutation commands and non-GET API calls.
 
-The HTTP server binds to `127.0.0.1` only. Loopback is not a boundary between accounts on the same Mac, and request headers such as `Sec-Fetch-Site` and `Origin` are easy to fake, so every page, API call, and event stream needs the attn token or the session cookie derived from it (see [Signing in](#signing-in)). Only the hashed app bundle, the token proof check, and the sign-in code exchange are served without one. The session cookie is `HttpOnly` and `SameSite=Strict`, and state-changing requests from another origin are rejected even with a valid credential.
+The HTTP server binds to `127.0.0.1` only. Loopback is not a boundary between accounts on the same Mac, and request headers such as `Sec-Fetch-Site` and `Origin` are easy to fake, so every page, API call, and event stream needs the attn token or the session cookie derived from it (see [Signing in](#signing-in)). Only the static app bundle (`/_app/`), the favicon, the token proof check, and the sign-in code exchange are served without one. The session cookie is `HttpOnly` and `SameSite=Strict`, and state-changing requests from another origin are rejected even with a valid credential.
 
 The browser never receives GitHub tokens or raw `gh` configuration. Local UI actions update local dashboard state (acknowledge), with one exception: the "open review terminal" button writes a fixed-template zsh script and opens it (in the app named by `ATTN_TERMINAL_APP`, or the system default) to check out the PR branch in your existing local clone. The app name is passed as a literal argument to `open -a`, never shell-interpreted. That script runs only local `git` commands, validates PR-author-controlled branch names before inlining them (falling back to `pull/<n>/head`), shell-escapes all free text, and refuses to touch a dirty working tree. Cached GitHub response data stays under `.local-state` and should not be committed.
 

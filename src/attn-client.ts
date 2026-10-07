@@ -18,6 +18,7 @@ export interface AttnApi {
 
 export interface AttnClient extends AttnApi {
   loginCode(): Promise<string>;
+  signOutAll(): Promise<number>;
 }
 
 export class AttnNotRunningError extends Error {
@@ -84,5 +85,6 @@ export function httpAttnClient(credentialsPath: string, port: number, fetchImpl:
     reviewPrompt: async (id) => (await call<{ prompt: string }>("POST", "/api/review-prompt", { id })).prompt,
     refresh: () => call<Snapshot>("POST", "/api/refresh", { force: false }),
     loginCode: async () => (await call<{ code: string }>("POST", "/api/login-code")).code,
+    signOutAll: async () => (await call<{ revoked: number }>("POST", "/api/signout")).revoked,
   };
 }

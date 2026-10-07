@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { buildConfigFileContents, parseCliArgs } from "../src/cli/main";
+import { buildConfigFileContents, parseCliArgs, signInTrampoline } from "../src/cli/main";
 import { parseEnvFile } from "../src/config-file";
 
 describe("parseCliArgs", () => {
@@ -44,5 +44,19 @@ describe("buildConfigFileContents", () => {
   test("omits checkout roots when the user skipped them", () => {
     const parsed = parseEnvFile(buildConfigFileContents("github.com", ""));
     expect(parsed).toEqual({ ATTN_HOST: "github.com" });
+  });
+});
+
+describe("signInTrampoline", () => {
+  test("forwards to the sign-in link without putting it anywhere but the file", () => {
+    const html = signInTrampoline("http://127.0.0.1:8765/#code=abc_DEF-1");
+    expect(html).toContain('content="0;url=http://127.0.0.1:8765/#code=abc_DEF-1"');
+    expect(html).toContain('location.replace("http://127.0.0.1:8765/#code=abc_DEF-1")');
+  });
+
+  test("escapes the link for the attribute and the script", () => {
+    const html = signInTrampoline('http://x/"></script><b>');
+    expect(html).toContain('url=http://x/&quot;>&lt;/script>&lt;b>"');
+    expect(html).toContain('location.replace("http://x/\\"\\u003e\\u003c/script\\u003e\\u003cb\\u003e")');
   });
 });
