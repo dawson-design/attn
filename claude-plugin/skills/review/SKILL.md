@@ -11,15 +11,17 @@ description: Review a pull request from attn locally, in a temporary git worktre
 4. Leave the user's working tree and branches as they are. Do not run the prompt's setup block, which checks branches out in the clone. Instead, in `localPath`, with `<n>` the PR number and `<base>` the base branch:
 
    ```bash
-   git fetch origin "+refs/pull/<n>/head:refs/attn/pr-<n>" "<base>"
-   tmp="$(mktemp -d)/pr-<n>"
-   git worktree add --detach "$tmp" refs/attn/pr-<n>
+   git fetch origin "+refs/pull/<n>/head:refs/attn/pr-<n>" "+refs/heads/<base>:refs/attn/base-<n>"
+   tmpdir="$(mktemp -d)"
+   git worktree add --detach "$tmpdir/pr-<n>" refs/attn/pr-<n>
    ```
 
    `refs/pull/<n>/head` is the PR head on GitHub and GitHub Enterprise, including PRs from forks.
 
-5. In `$tmp`, review `git diff origin/<base>...HEAD`, following the prompt's goal and output format.
-6. When the review is done, run `git worktree remove "$tmp"` and `git update-ref -d refs/attn/pr-<n>` in `localPath`.
+   The explicit refspecs work whatever the clone's fetch configuration is.
+
+5. In `$tmpdir/pr-<n>`, review `git diff refs/attn/base-<n>...HEAD`, following the prompt's goal and output format.
+6. When the review is done, run these in `localPath`: `git worktree remove "$tmpdir/pr-<n>"`, `rmdir "$tmpdir"`, and `git update-ref -d refs/attn/pr-<n>` and `git update-ref -d refs/attn/base-<n>`.
 
 Rules:
 
