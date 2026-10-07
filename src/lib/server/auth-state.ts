@@ -1,24 +1,32 @@
-// Server-process auth state, loaded in hooks.server.ts `init`: the token, the
-// browser sessions, and the outstanding login codes. Routes read it from here.
+// Server-process auth state, created once in hooks.server.ts `init`: the
+// dashboard's host and origin, the browser sessions, and the outstanding login
+// codes. Kept on globalThis so a dev-server module reload keeps them.
 import { LoginCodes } from "../../auth";
+import { dashboardHost, dashboardOrigin } from "../../host-guard";
 import type { SessionStore } from "../../sessions";
 
-let token: string | undefined;
-let sessionStore: SessionStore | undefined;
-
-export const loginCodes = new LoginCodes();
-
-export function setAuthState(value: { token: string; sessions: SessionStore }): void {
-  token = value.token;
-  sessionStore = value.sessions;
+export interface AuthState {
+  host: string;
+  origin: string;
+  sessions: SessionStore;
+  loginCodes: LoginCodes;
 }
 
-export function serverToken(): string {
-  if (!token) throw new Error("attn server token is not loaded yet");
-  return token;
+declare global {
+  var attnAuthState: AuthState | undefined;
 }
 
-export function sessions(): SessionStore {
-  if (!sessionStore) throw new Error("attn sessions are not loaded yet");
-  return sessionStore;
+export function startAuthState(port: number, sessions: SessionStore): AuthState {
+  globalThis.attnAuthState ??= {
+    host: dashboardHost(port),
+    origin: dashboardOrigin(port),
+    sessions,
+    loginCodes: new LoginCodes(),
+  };
+  return globalThis.attnAuthState;
+}
+
+export function authState(): AuthState {
+  if (!globalThis.attnAuthState) throw new Error("attn auth state is not started yet");
+  return globalThis.attnAuthState;
 }

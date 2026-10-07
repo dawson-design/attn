@@ -19,20 +19,21 @@
   import { isDependencyBotItem } from "../actors";
   import { renderRichText } from "../rich-text";
   import type { Snapshot, WatchItem, WatchItemDetails } from "../types";
-  import type { PageData } from "./$types";
+  import { api, hasSession, signInFromHash, SignedOutError, streamEvents } from "$lib/session-client";
 
   type DetailsState =
     | { status: "loading" }
     | { status: "loaded"; details: WatchItemDetails; itemUpdatedAt: string }
     | { status: "error"; error: string };
 
-  let { data }: { data: PageData } = $props();
-  const initialSnapshot: Snapshot = (() => data.snapshot)();
+  // The page HTML carries no data: it is served without a credential, and the
+  // snapshot arrives over the authenticated event stream.
+  const initialSnapshot: Snapshot = { generatedAt: "", host: "", items: [], errors: [], cacheStatus: "stale" };
+  let signedIn = $state<"checking" | "yes" | "no">("checking");
+  let signInError = $state("");
 
   let items = $state<WatchItem[]>(initialSnapshot.items || []);
   let errors = $state<string[]>(initialSnapshot.errors || []);
-  // Set when the page finds a service worker; attn never installs one.
-  let serviceWorkerWarning = $state(false);
   let connection = $state("connecting");
   let lastUpdated = $state(formatHeaderTime(initialSnapshot.generatedAt));
   let cacheStatus = $state<Snapshot["cacheStatus"]>(initialSnapshot.cacheStatus || "stale");
@@ -122,33 +123,50 @@
     const savedAck = localStorage.getItem("attn:showAcknowledged");
     if (savedAck != null) showAcknowledged = savedAck === "true";
     prefsLoaded = true;
-    // attn installs no service worker. One here was registered by another
-    // program that held this port while attn was stopped, and it could read
-    // the dashboard. Remove it and tell the user to revoke sessions.
-    void navigator.serviceWorker?.getRegistrations().then((registrations) => {
-      if (registrations.length === 0) return;
-      for (const registration of registrations) void registration.unregister();
-      serviceWorkerWarning = true;
-    });
-    const source = new EventSource("/events");
-    source.addEventListener("open", () => {
-      connection = "connected";
-    });
-    source.addEventListener("error", () => {
-      connection = "disconnected";
-    });
-    source.addEventListener("snapshot", (event) => {
-      const previousIds = new Set(items.map((item) => item.id));
-      applySnapshot(JSON.parse(event.data) as Snapshot);
-      if (loadedOnce) {
-        for (const item of items) {
-          if (!previousIds.has(item.id) && item.lifecycle === "new") notify(item);
-        }
-      }
-      loadedOnce = true;
-    });
-    return () => source.close();
+    const stream = new AbortController();
+    void connect(stream.signal);
+    return () => stream.abort();
   });
+
+  async function connect(signal: AbortSignal): Promise<void> {
+    try {
+      await signInFromHash();
+    } catch (error) {
+      signInError = error instanceof Error ? error.message : String(error);
+    }
+    if (!hasSession()) {
+      signedIn = "no";
+      return;
+    }
+    signedIn = "yes";
+    await streamEvents(
+      (event) => {
+        if (event.event !== "snapshot") return;
+        const previousIds = new Set(items.map((item) => item.id));
+        applySnapshot(JSON.parse(event.data) as Snapshot);
+        if (loadedOnce) {
+          for (const item of items) {
+            if (!previousIds.has(item.id) && item.lifecycle === "new") notify(item);
+          }
+        }
+        loadedOnce = true;
+      },
+      (status) => {
+        if (status === "signed-out") signedIn = "no";
+        else connection = status;
+      },
+      signal,
+    );
+  }
+
+  // A request that finds the session gone shows the sign-in instructions.
+  function handleError(error: unknown, fallback?: string): void {
+    if (error instanceof SignedOutError) {
+      signedIn = "no";
+      return;
+    }
+    reportError(fallback ?? (error instanceof Error ? error.message : String(error)));
+  }
 
   function sortedItems(value: WatchItem[]): WatchItem[] {
     return [...value].sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime());
@@ -210,7 +228,7 @@
   async function refresh(): Promise<void> {
     refreshing = true;
     try {
-      const response = await fetch("/api/refresh", { method: "POST" });
+      const response = await api("/api/refresh", { method: "POST" });
       if (!response.ok) {
         // A failed refresh returns an error body, not a Snapshot. Applying it
         // would coerce items/errors to empty and blank the dashboard,
@@ -221,7 +239,7 @@
       }
       applySnapshot((await response.json()) as Snapshot);
     } catch (error) {
-      reportError(error instanceof Error ? error.message : String(error));
+      handleError(error);
     } finally {
       refreshing = false;
     }
@@ -229,7 +247,7 @@
 
   async function setAck(id: string, acknowledged: boolean): Promise<void> {
     try {
-      const response = await fetch("/api/ack", {
+      const response = await api("/api/ack", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ ids: [id], acknowledged }),
@@ -239,7 +257,7 @@
         reportError(body.error || "Acknowledge failed.");
       }
     } catch (error) {
-      reportError(error instanceof Error ? error.message : String(error));
+      handleError(error);
     }
   }
 
@@ -279,7 +297,7 @@
     const { id } = item;
     detailsById = { ...detailsById, [id]: { status: "loading" } };
     try {
-      const response = await fetch("/api/item-details", {
+      const response = await api("/api/item-details", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ id }),
@@ -297,6 +315,7 @@
         [id]: { status: "loaded", details: body.details, itemUpdatedAt: item.updatedAt },
       };
     } catch (error) {
+      if (error instanceof SignedOutError) signedIn = "no";
       detailsById = {
         ...detailsById,
         [id]: { status: "error", error: error instanceof Error ? error.message : String(error) },
@@ -307,7 +326,7 @@
   async function copyAgentReviewPrompt(id: string): Promise<void> {
     copyingReviewPromptId = id;
     try {
-      const response = await fetch("/api/review-prompt", {
+      const response = await api("/api/review-prompt", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ id }),
@@ -325,7 +344,7 @@
         if (copiedReviewPromptId === id) copiedReviewPromptId = "";
       }, 2500);
     } catch (error) {
-      errors = Array.from(new Set([error instanceof Error ? error.message : String(error), ...errors]));
+      handleError(error);
     } finally {
       copyingReviewPromptId = "";
     }
@@ -334,7 +353,7 @@
   async function openReviewTerminal(id: string): Promise<void> {
     openingTerminalId = id;
     try {
-      const response = await fetch("/api/open-review-terminal", {
+      const response = await api("/api/open-review-terminal", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ id }),
@@ -344,7 +363,7 @@
         errors = Array.from(new Set([body.error || "Opening the review terminal failed.", ...errors]));
       }
     } catch (error) {
-      errors = Array.from(new Set([error instanceof Error ? error.message : String(error), ...errors]));
+      handleError(error);
     } finally {
       openingTerminalId = "";
     }
@@ -406,134 +425,133 @@
   <title>attn</title>
 </svelte:head>
 
-<Tooltip.Provider>
-  <header
-    class="sticky top-0 z-20 flex items-center justify-between gap-4 border-b border-border bg-card/95 px-4 py-2 shadow-sm backdrop-blur"
-  >
-    <div>
-      <h1 class="m-0 text-base font-semibold">attn</h1>
-      <p class="mt-0.5 text-xs text-muted-foreground">
-        {connection} · {filteredItems.length} visible / {items.length} tracked · {lastUpdated} · {cacheLabel}
-      </p>
-    </div>
-    <div class="flex flex-wrap justify-end gap-2">
-      <Button variant="outline" onclick={refresh}>
-        <RefreshCwIcon data-icon="inline-start" />
-        Refresh
-      </Button>
-      <Button variant="outline" onclick={enableNotifications}>
-        <BellIcon data-icon="inline-start" />
-        {notificationLabel}
-      </Button>
-      <Button variant="outline" size="icon" aria-label="Toggle theme" onclick={() => (darkMode = toggleTheme())}>
-        {#if darkMode}
-          <SunIcon />
-        {:else}
-          <MoonIcon />
-        {/if}
-      </Button>
-    </div>
-  </header>
-
-  <main class="mx-auto max-w-[1280px] px-4 py-3">
-    <section
-      class="mb-3 grid grid-cols-[minmax(240px,1fr)_180px_auto] items-end gap-3 max-md:grid-cols-1"
-      aria-label="Filters"
-    >
-      <label class="grid gap-1 text-xs text-muted-foreground">
-        Search
-        <Input type="search" bind:value={query} placeholder="repo, title, actor" />
-      </label>
-      <label class="grid gap-1 text-xs text-muted-foreground">
-        Type
-        <Select.Root type="single" bind:value={kind}>
-          <Select.Trigger class="w-full">
-            <span data-slot="select-value">{notificationTypeLabel(kindValue)}</span>
-          </Select.Trigger>
-          <Select.Content>
-            <Select.Item value="">All</Select.Item>
-            <Select.Item value="pr_review_request">PR review</Select.Item>
-            <Select.Item value="pr_comment">PR comment</Select.Item>
-            <Select.Item value="issue_assigned">Issue assigned</Select.Item>
-            <Select.Item value="issue_mention">Issue mention</Select.Item>
-            <Select.Item value="issue_comment">Issue comment</Select.Item>
-          </Select.Content>
-        </Select.Root>
-      </label>
-      <div class="flex flex-col justify-end gap-1 text-xs text-muted-foreground">
-        <label class="flex items-center gap-2">
-          <input class="size-4 rounded border-border bg-background" type="checkbox" bind:checked={showAcknowledged} />
-          Show acknowledged ({acknowledgedCount})
-        </label>
-      </div>
-    </section>
-
-    {#if serviceWorkerWarning}
-      <section
-        role="alert"
-        class="mb-3 rounded-lg border border-destructive/50 bg-destructive/10 p-3 text-sm text-red-700 dark:text-red-200"
-      >
-        <strong class="text-red-800 dark:text-red-100">Removed a service worker attn did not install</strong>
-        <p class="m-0 mt-1">
-          Another program may have used this port while attn was stopped. Run <code>attn signout</code>, then
-          <code>attn open</code>, to replace every browser session.
-        </p>
-      </section>
-    {/if}
-
-    {#if errors.length}
-      <section
-        class="mb-3 rounded-lg border border-destructive/50 bg-destructive/10 p-3 text-sm text-red-700 dark:text-red-200"
-      >
-        <strong class="text-red-800 dark:text-red-100">Fetch warnings</strong>
-        {#each errors as error (error)}
-          <p class="m-0 mt-1 text-red-700 dark:text-red-200">{error}</p>
-        {/each}
-      </section>
-    {/if}
-
-    <section aria-live="polite">
-      {@render dashboardTable(pageItems)}
-      {#if filteredItems.length > 0}
-        <div class="mt-3 flex flex-wrap items-center justify-between gap-3 text-xs text-muted-foreground">
-          <div class="flex items-center gap-2">
-            <span>Rows per page</span>
-            <Select.Root type="single" bind:value={pageSizeChoice}>
-              <Select.Trigger class="h-7 w-[70px]">
-                <span data-slot="select-value">{pageSizeChoice}</span>
-              </Select.Trigger>
-              <Select.Content>
-                {#each ["10", "25", "50", "100"] as size (size)}
-                  <Select.Item value={size}>{size}</Select.Item>
-                {/each}
-              </Select.Content>
-            </Select.Root>
-            <span>Showing {pageStart}-{pageEnd} of {filteredItems.length}</span>
-          </div>
-          <div class="flex items-center gap-2">
-            <Button
-              variant="outline"
-              size="xs"
-              disabled={currentPage <= 1}
-              onclick={() => (currentPage = Math.max(1, currentPage - 1))}
-            >
-              Prev
-            </Button>
-            <span>Page {currentPage} of {pageCount}</span>
-            <Button
-              variant="outline"
-              size="xs"
-              disabled={currentPage >= pageCount}
-              onclick={() => (currentPage = Math.min(pageCount, currentPage + 1))}
-            >
-              Next
-            </Button>
-          </div>
-        </div>
-      {/if}
-    </section>
+{#if signedIn === "no"}
+  <main class="mx-auto mt-[15vh] max-w-xl px-4 text-sm">
+    <h1 class="mb-3 text-xl font-semibold">attn is locked</h1>
+    {#if signInError}<p class="mb-3 text-red-700 dark:text-red-300">{signInError}</p>{/if}
+    <p class="mb-2">
+      Open the dashboard from a terminal with <code>attn open</code>. To use another browser, run
+      <code>attn open --print</code> and paste the one-time link it prints.
+    </p>
+    <p>Sessions end when attn restarts, so run <code>attn open</code> again after a restart or upgrade.</p>
   </main>
-</Tooltip.Provider>
+{:else}
+  <Tooltip.Provider>
+    <header
+      class="sticky top-0 z-20 flex items-center justify-between gap-4 border-b border-border bg-card/95 px-4 py-2 shadow-sm backdrop-blur"
+    >
+      <div>
+        <h1 class="m-0 text-base font-semibold">attn</h1>
+        <p class="mt-0.5 text-xs text-muted-foreground">
+          {connection} · {filteredItems.length} visible / {items.length} tracked · {lastUpdated} · {cacheLabel}
+        </p>
+      </div>
+      <div class="flex flex-wrap justify-end gap-2">
+        <Button variant="outline" onclick={refresh}>
+          <RefreshCwIcon data-icon="inline-start" />
+          Refresh
+        </Button>
+        <Button variant="outline" onclick={enableNotifications}>
+          <BellIcon data-icon="inline-start" />
+          {notificationLabel}
+        </Button>
+        <Button variant="outline" size="icon" aria-label="Toggle theme" onclick={() => (darkMode = toggleTheme())}>
+          {#if darkMode}
+            <SunIcon />
+          {:else}
+            <MoonIcon />
+          {/if}
+        </Button>
+      </div>
+    </header>
+
+    <main class="mx-auto max-w-[1280px] px-4 py-3">
+      <section
+        class="mb-3 grid grid-cols-[minmax(240px,1fr)_180px_auto] items-end gap-3 max-md:grid-cols-1"
+        aria-label="Filters"
+      >
+        <label class="grid gap-1 text-xs text-muted-foreground">
+          Search
+          <Input type="search" bind:value={query} placeholder="repo, title, actor" />
+        </label>
+        <label class="grid gap-1 text-xs text-muted-foreground">
+          Type
+          <Select.Root type="single" bind:value={kind}>
+            <Select.Trigger class="w-full">
+              <span data-slot="select-value">{notificationTypeLabel(kindValue)}</span>
+            </Select.Trigger>
+            <Select.Content>
+              <Select.Item value="">All</Select.Item>
+              <Select.Item value="pr_review_request">PR review</Select.Item>
+              <Select.Item value="pr_comment">PR comment</Select.Item>
+              <Select.Item value="issue_assigned">Issue assigned</Select.Item>
+              <Select.Item value="issue_mention">Issue mention</Select.Item>
+              <Select.Item value="issue_comment">Issue comment</Select.Item>
+            </Select.Content>
+          </Select.Root>
+        </label>
+        <div class="flex flex-col justify-end gap-1 text-xs text-muted-foreground">
+          <label class="flex items-center gap-2">
+            <input class="size-4 rounded border-border bg-background" type="checkbox" bind:checked={showAcknowledged} />
+            Show acknowledged ({acknowledgedCount})
+          </label>
+        </div>
+      </section>
+
+      {#if errors.length}
+        <section
+          class="mb-3 rounded-lg border border-destructive/50 bg-destructive/10 p-3 text-sm text-red-700 dark:text-red-200"
+        >
+          <strong class="text-red-800 dark:text-red-100">Fetch warnings</strong>
+          {#each errors as error (error)}
+            <p class="m-0 mt-1 text-red-700 dark:text-red-200">{error}</p>
+          {/each}
+        </section>
+      {/if}
+
+      <section aria-live="polite">
+        {@render dashboardTable(pageItems)}
+        {#if filteredItems.length > 0}
+          <div class="mt-3 flex flex-wrap items-center justify-between gap-3 text-xs text-muted-foreground">
+            <div class="flex items-center gap-2">
+              <span>Rows per page</span>
+              <Select.Root type="single" bind:value={pageSizeChoice}>
+                <Select.Trigger class="h-7 w-[70px]">
+                  <span data-slot="select-value">{pageSizeChoice}</span>
+                </Select.Trigger>
+                <Select.Content>
+                  {#each ["10", "25", "50", "100"] as size (size)}
+                    <Select.Item value={size}>{size}</Select.Item>
+                  {/each}
+                </Select.Content>
+              </Select.Root>
+              <span>Showing {pageStart}-{pageEnd} of {filteredItems.length}</span>
+            </div>
+            <div class="flex items-center gap-2">
+              <Button
+                variant="outline"
+                size="xs"
+                disabled={currentPage <= 1}
+                onclick={() => (currentPage = Math.max(1, currentPage - 1))}
+              >
+                Prev
+              </Button>
+              <span>Page {currentPage} of {pageCount}</span>
+              <Button
+                variant="outline"
+                size="xs"
+                disabled={currentPage >= pageCount}
+                onclick={() => (currentPage = Math.min(pageCount, currentPage + 1))}
+              >
+                Next
+              </Button>
+            </div>
+          </div>
+        {/if}
+      </section>
+    </main>
+  </Tooltip.Provider>
+{/if}
 
 {#snippet dashboardTable(tableItems: WatchItem[])}
   <section class="min-w-0">
@@ -676,7 +694,9 @@
                             </Button>
                           {/snippet}
                         </Tooltip.Trigger>
-                        <Tooltip.Content>Open terminal with the PR branch checked out</Tooltip.Content>
+                        <Tooltip.Content
+                          >Open a terminal in the clone with the PR fetched (not checked out)</Tooltip.Content
+                        >
                       </Tooltip.Root>
                     {/if}
                   </div>

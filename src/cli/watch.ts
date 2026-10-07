@@ -1,10 +1,16 @@
 #!/usr/bin/env bun
 import { spawn } from "node:child_process";
+import { randomBytes } from "node:crypto";
+import { mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { loadConfig } from "../config";
 import { loadGithubCache, saveGithubCache, type GithubCache } from "../github-cache";
 import { fetchItemDetails } from "../item-details";
+import { writePrivateFile } from "../private-file";
 import { loadSnapshot, saveSnapshot } from "../snapshot-cache";
 import { acknowledge, loadState, saveState } from "../state";
+import { terminalText } from "../terminal-launch";
 import type { AppState, Config, Snapshot, WatchItem, WatchItemDetails } from "../types";
 import {
   actionLabel,
@@ -284,7 +290,11 @@ function openUrl(url: string): void {
 async function launchAgent(item: WatchItem, agent: AgentName, options: CliOptions): Promise<void> {
   let suspended = false;
   try {
-    const launch = await buildAgentLaunch(config, item, agent);
+    // mkdtemp creates the directory 0700.
+    const promptDir = await mkdtemp(join(tmpdir(), "attn-review-"));
+    const promptFile = join(promptDir, `review-${randomBytes(4).toString("hex")}.md`);
+    const launch = await buildAgentLaunch(config, item, agent, promptFile);
+    await writePrivateFile(promptFile, launch.prompt);
     suspendTerminal();
     suspended = true;
     console.log(`\nLaunching ${agent} in ${launch.cwd}\n`);
@@ -296,6 +306,7 @@ async function launchAgent(item: WatchItem, agent: AgentName, options: CliOption
       });
       child.on("close", () => resolve());
     });
+    await rm(promptDir, { recursive: true, force: true });
     resumeTerminal();
     status = `${agent} exited.`;
     mode = { name: "list" };
@@ -363,7 +374,8 @@ function renderList(options: CliOptions): void {
     const repo = color("blue", `${item.repoName} #${item.number}`);
     const updated = color("dim", formatDate(item.updatedAt).padEnd(14));
     const bot = isDependabotPr(item) ? `${color("green", "[dependabot]")} ` : "";
-    const title = item.lifecycle === "new" || item.lifecycle === "unread" ? color("bold", item.title) : item.title;
+    const plainTitle = terminalText(item.title);
+    const title = item.lifecycle === "new" || item.lifecycle === "unread" ? color("bold", plainTitle) : plainTitle;
     const row = `${marker} ${updated} ${lifecycle} ${kind} ${repo}  ${bot}${title}`;
     writeLine(selected ? highlightLine(row, width) : row, width);
   }
@@ -374,21 +386,25 @@ function renderActions(actionMode: Extract<Mode, { name: "actions" }>): void {
   const item = actionMode.item;
   writeLine(color("blue", `${item.repo} #${item.number}`));
   writeLine(
-    `${color(kindColor(item.kind), kindLabel(item.kind))} | ${color(lifecycleColor(item.lifecycle), item.lifecycle)} | ${formatDate(item.updatedAt)} | ${item.actor}`,
+    `${color(kindColor(item.kind), kindLabel(item.kind))} | ${color(lifecycleColor(item.lifecycle), item.lifecycle)} | ${formatDate(item.updatedAt)} | ${terminalText(item.actor)}`,
   );
-  writeLine(color("bold", item.title), width);
-  writeLine(`${color("dim", "URL:")} ${item.url}`, width);
+  writeLine(color("bold", terminalText(item.title)), width);
+  writeLine(`${color("dim", "URL:")} ${terminalText(item.url)}`, width);
   if (item.localPath) writeLine(`${color("dim", "Local:")} ${item.localPath}`, width);
   if (actionMode.error) writeLine(`${color("red", "Details error:")} ${actionMode.error}`, width);
   if (actionMode.details?.body) {
     writeLine("");
-    for (const line of actionMode.details.body.replace(/\s+/g, " ").match(/.{1,120}/g) || []) writeLine(line, width);
+    for (const line of terminalText(actionMode.details.body.replace(/\s+/g, " ")).match(/.{1,120}/g) || [])
+      writeLine(line, width);
   }
   if (actionMode.details?.comments.length) {
     writeLine("");
     writeLine(color("bold", "Comments:"));
     for (const comment of actionMode.details.comments.slice(-3)) {
-      writeLine(`- ${comment.author}: ${comment.body.replace(/\s+/g, " ").slice(0, 140)}`, width);
+      writeLine(
+        `- ${terminalText(comment.author)}: ${terminalText(comment.body.replace(/\s+/g, " ")).slice(0, 140)}`,
+        width,
+      );
     }
   }
   writeLine("");

@@ -1,5 +1,8 @@
 import { describe, expect, test } from "bun:test";
-import { hostnameOf, isAllowedHost, isAllowedRequestOrigin, parseAllowedHostsEnv } from "../src/host-guard";
+import { classifyHost, dashboardHost, dashboardOrigin, hostnameOf, isAllowedRequestOrigin } from "../src/host-guard";
+
+const HOST = dashboardHost(8765);
+const ORIGIN = dashboardOrigin(8765);
 
 describe("hostnameOf", () => {
   test("strips the port from host:port and bracketed IPv6", () => {
@@ -9,74 +12,50 @@ describe("hostnameOf", () => {
   });
 });
 
-describe("isAllowedHost", () => {
-  test("accepts loopback hosts regardless of port or case", () => {
-    expect(isAllowedHost("127.0.0.1:8765")).toBe(true);
-    expect(isAllowedHost("localhost:8765")).toBe(true);
-    expect(isAllowedHost("LocalHost")).toBe(true);
-    expect(isAllowedHost("[::1]:8765")).toBe(true);
+describe("classifyHost", () => {
+  test("only attn.localhost on attn's port reaches the dashboard", () => {
+    expect(ORIGIN).toBe("https://attn.localhost:8765");
+    expect(classifyHost("attn.localhost:8765", HOST)).toBe("dashboard");
+    expect(classifyHost("ATTN.LOCALHOST:8765", HOST)).toBe("dashboard");
+    expect(classifyHost("attn.localhost:9999", HOST)).toBe("local");
+  });
+
+  test("other loopback names get the locked page", () => {
+    for (const host of ["127.0.0.1:8765", "localhost:8765", "[::1]:8765", "other.localhost:8765"]) {
+      expect(classifyHost(host, HOST)).toBe("local");
+    }
   });
 
   test("rejects a rebound attacker Host header", () => {
-    // Under DNS rebinding the socket is loopback but the Host is the attacker's
-    // original domain — exactly what this guard blocks.
-    expect(isAllowedHost("evil.example:8765")).toBe(false);
-    expect(isAllowedHost("dashboard.internal")).toBe(false);
-    expect(isAllowedHost("")).toBe(false);
-  });
-
-  test("honors the ATTN_ALLOWED_HOSTS escape hatch", () => {
-    const extra = parseAllowedHostsEnv("watch.example, proxy.internal ");
-    expect(extra).toEqual(["watch.example", "proxy.internal"]);
-    expect(isAllowedHost("watch.example:8765", extra)).toBe(true);
-    expect(isAllowedHost("other.example", extra)).toBe(false);
+    for (const host of ["evil.example", "evil.example:8765", "127.0.0.1.evil.example", "localhost.evil.example", ""]) {
+      expect(classifyHost(host, HOST)).toBe("foreign");
+    }
   });
 });
 
 describe("isAllowedRequestOrigin", () => {
   test("always allows safe methods", () => {
-    // GET/HEAD have no side effects; the Host guard already covers rebinding.
-    expect(isAllowedRequestOrigin("GET", "cross-site", "https://evil.example")).toBe(true);
-    expect(isAllowedRequestOrigin("HEAD", null, null)).toBe(true);
+    expect(isAllowedRequestOrigin("GET", "cross-site", "https://evil.example", ORIGIN)).toBe(true);
+    expect(isAllowedRequestOrigin("HEAD", null, null, ORIGIN)).toBe(true);
   });
 
-  test("allows the dashboard's own same-origin fetches", () => {
-    expect(isAllowedRequestOrigin("POST", "same-origin", "http://127.0.0.1:8765")).toBe(true);
-    // A user gesture (typed URL, bookmark) is not a cross-site request.
-    expect(isAllowedRequestOrigin("POST", "none", null)).toBe(true);
+  test("allows the dashboard's own same-origin fetches and user gestures", () => {
+    expect(isAllowedRequestOrigin("POST", "same-origin", ORIGIN, ORIGIN)).toBe(true);
+    expect(isAllowedRequestOrigin("POST", "none", null, ORIGIN)).toBe(true);
   });
 
   test("rejects cross-site and same-site state-changing requests", () => {
-    // The CSRF vector: a page on another origin drives /api/* in the browser.
-    expect(isAllowedRequestOrigin("POST", "cross-site", "https://evil.example")).toBe(false);
-    expect(isAllowedRequestOrigin("POST", "same-site", "https://evil.example")).toBe(false);
+    expect(isAllowedRequestOrigin("POST", "cross-site", "https://evil.example", ORIGIN)).toBe(false);
+    expect(isAllowedRequestOrigin("POST", "same-site", "https://other.attn.localhost:8765", ORIGIN)).toBe(false);
   });
 
   test("falls back to the Origin header when Sec-Fetch-Site is absent", () => {
-    // Older browsers omit fetch metadata but still send Origin on a POST.
-    expect(isAllowedRequestOrigin("POST", null, "http://localhost:8765")).toBe(true);
-    expect(isAllowedRequestOrigin("POST", null, "https://evil.example")).toBe(false);
-    // An opaque origin serializes to the literal "null" — reject it.
-    expect(isAllowedRequestOrigin("POST", null, "null")).toBe(false);
+    expect(isAllowedRequestOrigin("POST", null, ORIGIN, ORIGIN)).toBe(true);
+    expect(isAllowedRequestOrigin("POST", null, "http://attn.localhost:8765", ORIGIN)).toBe(false);
+    expect(isAllowedRequestOrigin("POST", null, "null", ORIGIN)).toBe(false);
   });
 
-  test("rejects a non-browser state change without the agent token", () => {
-    // Any local account can reach loopback, so a header-less POST needs proof
-    // that the caller can read agent.json.
-    expect(isAllowedRequestOrigin("POST", null, null)).toBe(false);
-    expect(isAllowedRequestOrigin("POST", null, null, [], false)).toBe(false);
-  });
-
-  test("allows a non-browser state change that carries the agent token", () => {
-    expect(isAllowedRequestOrigin("POST", null, null, [], true)).toBe(true);
-  });
-
-  test("the agent token does not override a cross-site browser request", () => {
-    expect(isAllowedRequestOrigin("POST", "cross-site", "https://evil.example", [], true)).toBe(false);
-  });
-
-  test("honors the allowed-hosts escape hatch for the Origin fallback", () => {
-    const extra = parseAllowedHostsEnv("watch.example");
-    expect(isAllowedRequestOrigin("POST", null, "https://watch.example", extra)).toBe(true);
+  test("rejects a state change with neither header", () => {
+    expect(isAllowedRequestOrigin("POST", null, null, ORIGIN)).toBe(false);
   });
 });

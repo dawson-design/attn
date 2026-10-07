@@ -1,55 +1,40 @@
 // Request authentication for the local server. Pure apart from the clock, so
 // the rules can be tested without a server.
 //
-// - Bearer token (agent-token.ts): `attn mcp` and `attn open`.
-// - Session cookie: the browser. `attn open` asks the server for a one-time
-//   login code and opens `/#code=<code>` through an owner-only file; the
-//   locked page trades the code for a random, revocable session (sessions.ts).
-//   Neither the token nor a code appears in a process argument, which other
-//   local accounts can read with `ps`.
-// - Server proof: before a client sends the token, it checks that the process
-//   on the port knows the token, so a squatter on the port after attn stops
-//   does not receive it. The check and the request are separate connections,
-//   so a squatter that binds in the instant between them could; that needs
-//   attn to stop at that moment.
-import { createHmac, randomBytes } from "node:crypto";
-import { bearerMatches } from "./agent-token";
+// - Agents (`attn mcp`, `attn open`, `attn signout`) do not use HTTP. They
+//   talk to the server over a Unix socket in the owner-only state directory
+//   (lib/server/agent-socket.ts), so only this user's processes can reach it,
+//   and a client that connects knows it reached this user's attn.
+// - The browser holds a session token in the tab's sessionStorage and sends
+//   it as `Authorization: Bearer` (lib/session-client.ts). `attn
+//   open` asks the server, over the socket, for a one-time login code and
+//   opens `/#code=<code>` through an owner-only file; the page trades the code
+//   for a random session (sessions.ts) that ends when the server stops. There
+//   is no cookie: cookies are not port-scoped, so a program listening on
+//   another port of attn.localhost would receive one.
+import { randomBytes } from "node:crypto";
 
-export const SESSION_COOKIE = "attn_session";
 export const LOGIN_CODE_TTL_MS = 60_000;
 const MAX_OUTSTANDING_CODES = 20;
-const NONCE_PATTERN = /^[A-Za-z0-9_-]{16,128}$/;
 
-function hmac(token: string, label: string): string {
-  return createHmac("sha256", token).update(label).digest("base64url");
-}
-
-export function serverProof(token: string, nonce: string): string {
-  return hmac(token, `attn-server-proof:${nonce}`);
-}
-
-export function isValidNonce(nonce: string | null): nonce is string {
-  return nonce !== null && NONCE_PATTERN.test(nonce);
-}
-
-export function newNonce(): string {
-  return randomBytes(24).toString("base64url");
+export function bearerToken(authorization: string | null): string | undefined {
+  return authorization?.startsWith("Bearer ") ? authorization.slice("Bearer ".length) : undefined;
 }
 
 export function isAuthenticated(
-  token: string,
   authorization: string | null,
-  sessionCookie: string | undefined,
   sessions: { has(id: string | undefined): boolean },
 ): boolean {
-  return bearerMatches(token, authorization) || sessions.has(sessionCookie);
+  return sessions.has(bearerToken(authorization));
 }
 
-// Paths served without a credential: the hashed app bundle (no data in it),
-// the favicon, the proof check, and the code-for-cookie exchange.
+// Served without a session: the page shell (its HTML carries no data; the
+// page fetches everything with the token), the hashed app bundle, the favicon,
+// and the code-for-token exchange. Everything else, including /api/* and
+// /events, needs the token.
 export function isPublicRequest(method: string, pathname: string): boolean {
   if (pathname.startsWith("/_app/") || pathname.startsWith("/favicon")) return true;
-  if (method === "GET" && pathname === "/api/agent-proof") return true;
+  if ((method === "GET" || method === "HEAD") && pathname === "/") return true;
   return method === "POST" && pathname === "/api/session";
 }
 

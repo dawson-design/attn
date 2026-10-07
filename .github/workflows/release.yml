@@ -19,7 +19,7 @@ jobs:
 
     steps:
       # Actions pinned to a full commit SHA (a mutable tag could be retagged to
-      # run malicious code in a job that holds contents:write and TAP_PUSH_TOKEN).
+      # run malicious code in a job that holds contents:write and HOMEBREW_TAP_TOKEN).
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
@@ -65,23 +65,24 @@ jobs:
             --generate-notes
 
       # Renders packaging/homebrew/attn.rb (the template of record) with
-      # the released tarball's URL + sha256 and pushes it to the personal tap.
-      # TAP_PUSH_TOKEN is a repo secret: a fine-grained PAT with contents:write
-      # on kreek/homebrew-tap. Skipped with a notice when the secret is absent.
+      # the released tarball's URL + sha256 and pushes it to the org tap.
+      # HOMEBREW_TAP_TOKEN is a repo or org secret: a fine-grained PAT with
+      # contents:write on dawson-design/homebrew-tap. Skipped with a notice
+      # when the secret is absent.
       - name: Update Homebrew tap
         env:
-          TAP_PUSH_TOKEN: ${{ secrets.TAP_PUSH_TOKEN }}
+          HOMEBREW_TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
         run: |
-          if [ -z "$TAP_PUSH_TOKEN" ]; then
-            echo "::warning::TAP_PUSH_TOKEN not set; skipping tap update"
+          if [ -z "$HOMEBREW_TAP_TOKEN" ]; then
+            echo "::warning::HOMEBREW_TAP_TOKEN not set; skipping tap update"
             exit 0
           fi
-          url="https://github.com/kreek/attn/releases/download/$GITHUB_REF_NAME/attn-$GITHUB_REF_NAME.tar.gz"
+          url="https://github.com/dawson-design/attn/releases/download/$GITHUB_REF_NAME/attn-$GITHUB_REF_NAME.tar.gz"
           sha="$(cut -d' ' -f1 dist/*.sha256)"
           # Pass the token as an http.extraHeader instead of embedding it in the
           # remote URL, so it is never written into tap/.git/config on the runner.
-          auth="AUTHORIZATION: basic $(printf 'x-access-token:%s' "$TAP_PUSH_TOKEN" | base64 | tr -d '\n')"
-          git -c "http.extraHeader=$auth" clone --depth 1 "https://github.com/kreek/homebrew-tap.git" tap
+          auth="AUTHORIZATION: basic $(printf 'x-access-token:%s' "$HOMEBREW_TAP_TOKEN" | base64 | tr -d '\n')"
+          git -c "http.extraHeader=$auth" clone --depth 1 "https://github.com/dawson-design/homebrew-tap.git" tap
           mkdir -p tap/Formula
           sed -e "s|__URL__|$url|" -e "s|__SHA256__|$sha|" \
             packaging/homebrew/attn.rb > tap/Formula/attn.rb

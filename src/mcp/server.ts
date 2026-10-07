@@ -130,7 +130,7 @@ export function createAttnMcpServer(api: AttnApi, version: string): McpServer {
     {
       title: "Get a local review prompt",
       description:
-        "Build the local code-review prompt for a pull request item. The prompt checks the branch out in the user's local clone (localPath) and never posts to GitHub.",
+        "Build the local code-review prompt for a pull request item. The prompt fetches the PR into refs/attn/ in the user's local clone (localPath) without checking it out, and never posts to GitHub.",
       inputSchema: z.object({ id: z.string().min(1).describe("A pull request item id from attn_items") }),
       annotations: { readOnlyHint: true, openWorldHint: false },
     },

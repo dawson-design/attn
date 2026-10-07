@@ -6,7 +6,7 @@
 # a GitHub release for the Homebrew formula to consume.
 #
 # Requires a fresh `bun run build` first; the server bundle is produced from
-# build/index.js so it needs no node_modules at runtime (verified by the
+# build/handler.js so it needs no node_modules at runtime (verified by the
 # release smoke test).
 #
 # Usage: scripts/package-artifact.sh [version]
@@ -22,14 +22,15 @@ VERSION="${1:-$(git -C "$APP_DIR" describe --tags --always)}"
 VERSION="${VERSION#v}"
 
 command -v bun >/dev/null || { echo "ERROR: bun not found on PATH" >&2; exit 1; }
-[[ -f "$APP_DIR/build/index.js" ]] || { echo "ERROR: build/index.js missing — run 'bun run build' first" >&2; exit 1; }
+[[ -f "$APP_DIR/build/handler.js" ]] || { echo "ERROR: build/handler.js missing — run 'bun run build' first" >&2; exit 1; }
 
 STAGE="$(mktemp -d)"
 trap 'rm -rf "$STAGE"' EXIT
 mkdir -p "$STAGE/libexec/server" "$STAGE/libexec/share"
 
 echo "==> Bundling server"
-bun build --target=bun "$APP_DIR/build/index.js" --outfile "$STAGE/libexec/server/index.js" >/dev/null
+# `attn serve` runs adapter-node's handler inside its own HTTPS server.
+bun build --target=bun "$APP_DIR/build/handler.js" --outfile "$STAGE/libexec/server/handler.js" >/dev/null
 cp -R "$APP_DIR/build/client" "$STAGE/libexec/server/client"
 
 echo "==> Bundling CLI"

