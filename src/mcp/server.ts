@@ -5,7 +5,7 @@ import { McpServer } from "@modelcontextprotocol/server";
 import * as z from "zod/v4";
 import { visibleItems } from "../cli/watch-core";
 import type { ItemKind, Snapshot, WatchItem } from "../types";
-import type { AttnApi } from "./api";
+import type { AttnApi } from "../attn-client";
 
 const KINDS = [
   "pr_review_request",
@@ -115,8 +115,13 @@ export function createAttnMcpServer(api: AttnApi, version: string): McpServer {
     },
     ({ ids, acknowledged }) =>
       guarded(async () => {
-        await api.acknowledge(ids, acknowledged !== false);
-        return jsonResult({ ok: true, ids, acknowledged: acknowledged !== false });
+        // The server ignores ids it does not know, so report them instead of
+        // letting the agent claim an ack that never happened.
+        const known = new Set((await api.items()).items.map((item) => item.id));
+        const matched = ids.filter((id) => known.has(id));
+        const unknown = ids.filter((id) => !known.has(id));
+        if (matched.length > 0) await api.acknowledge(matched, acknowledged !== false);
+        return jsonResult({ acknowledged: acknowledged !== false, matched, unknown });
       }),
   );
 
@@ -142,7 +147,7 @@ export function createAttnMcpServer(api: AttnApi, version: string): McpServer {
     {
       title: "Refresh from GitHub",
       description:
-        "Re-query GitHub now instead of waiting for the next poll. Reads only; overrides the rate-limit backoff, so use it sparingly.",
+        "Re-query GitHub now instead of waiting for the next poll. Reads only. Returns without querying while attn is backing off after a GitHub rate limit; nextRefreshAllowedAt says when it may run.",
       annotations: { readOnlyHint: true, openWorldHint: true },
     },
     () =>

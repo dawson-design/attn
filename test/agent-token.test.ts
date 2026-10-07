@@ -1,12 +1,12 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { mkdtemp, rm, stat, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import {
   agentCredentialsPath,
   bearerMatches,
+  loadOrCreateAgentToken,
   newAgentToken,
-  readAgentCredentials,
-  writeAgentCredentials,
+  readAgentToken,
 } from "../src/agent-token";
 
 describe("bearerMatches", () => {
@@ -31,7 +31,7 @@ describe("bearerMatches", () => {
   });
 });
 
-describe("agent credentials file", () => {
+describe("agent token file", () => {
   let dir: string | undefined;
   afterEach(async () => {
     if (dir) await rm(dir, { recursive: true, force: true });
@@ -41,20 +41,36 @@ describe("agent credentials file", () => {
     expect(agentCredentialsPath("/x/state/attn/state.json")).toBe("/x/state/attn/agent.json");
   });
 
-  test("round-trips and is readable only by the owner", async () => {
+  test("is created once, owner-only, and reused on the next start", async () => {
     dir = await mkdtemp(`${tmpdir()}/attn-agent-`);
     const path = `${dir}/nested/agent.json`;
-    await writeAgentCredentials(path, { port: 8765, token: "abc" });
-    expect(await readAgentCredentials(path)).toEqual({ port: 8765, token: "abc" });
+    const first = await loadOrCreateAgentToken(path);
+    expect(await loadOrCreateAgentToken(path)).toBe(first);
+    expect(await readAgentToken(path)).toBe(first);
     expect((await stat(path)).mode & 0o777).toBe(0o600);
+    expect((await stat(`${dir}/nested`)).mode & 0o777).toBe(0o700);
   });
 
-  test("reads a missing or malformed file as no credentials", async () => {
+  test("two servers starting at once agree on one token", async () => {
     dir = await mkdtemp(`${tmpdir()}/attn-agent-`);
-    expect(await readAgentCredentials(`${dir}/missing.json`)).toBeUndefined();
+    const path = `${dir}/agent.json`;
+    const tokens = await Promise.all([loadOrCreateAgentToken(path), loadOrCreateAgentToken(path)]);
+    expect(tokens[0]).toBe(tokens[1]);
+  });
+
+  test("reads a missing, malformed, or short token as none", async () => {
+    dir = await mkdtemp(`${tmpdir()}/attn-agent-`);
+    expect(await readAgentToken(`${dir}/missing.json`)).toBeUndefined();
     await writeFile(`${dir}/bad.json`, "{not json");
-    expect(await readAgentCredentials(`${dir}/bad.json`)).toBeUndefined();
-    await writeFile(`${dir}/partial.json`, JSON.stringify({ port: "8765", token: "abc" }));
-    expect(await readAgentCredentials(`${dir}/partial.json`)).toBeUndefined();
+    expect(await readAgentToken(`${dir}/bad.json`)).toBeUndefined();
+    await writeFile(`${dir}/short.json`, JSON.stringify({ token: "abc" }));
+    expect(await readAgentToken(`${dir}/short.json`)).toBeUndefined();
+  });
+
+  test("refuses to replace a corrupt file", async () => {
+    dir = await mkdtemp(`${tmpdir()}/attn-agent-`);
+    await mkdir(dir, { recursive: true });
+    await writeFile(`${dir}/agent.json`, "{not json");
+    await expect(loadOrCreateAgentToken(`${dir}/agent.json`)).rejects.toThrow("delete it and restart attn");
   });
 });

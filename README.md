@@ -28,16 +28,33 @@ attn init
 brew services start attn
 ```
 
-`attn init` asks for your GitHub (Enterprise) host and optional local checkout roots, writes `~/.config/attn/env`, checks `gh` auth, and offers to install the login-time Chrome notification window. After `brew services start`, the dashboard is at `http://127.0.0.1:8765` and starts at every login.
+`attn init` asks for your GitHub (Enterprise) host and optional local checkout roots, writes `~/.config/attn/env`, checks `gh` auth, and offers to install the login-time Chrome notification window. After `brew services start`, the server runs at `http://127.0.0.1:8765` and starts at every login. Open the dashboard with `attn open`, which signs the browser in (see [Signing in](#signing-in)).
 
 - **Configuration** lives in `~/.config/attn/env` — the same `KEY=value` format as `.env` below, and never any secrets (auth stays in `gh`). Edit it, then `brew services restart attn`. Precedence: process environment > config file > default.
 - **State** is kept under `~/.local/state/attn/`; server logs under Homebrew's `var/log/`.
-- **Notifications**: `attn install-window` / `attn uninstall-window` manage the Chrome window login item (window logs under `~/Library/Logs/attn/`); `attn open` opens the window right now; `attn status` shows the whole setup at a glance.
+- **Notifications**: `attn install-window` / `attn uninstall-window` manage the Chrome window login item (window logs under `~/Library/Logs/attn/`); `attn open` signs in and opens the window right now; `attn status` shows the whole setup at a glance.
 - A custom review-prompt template can be placed at `~/.config/attn/review.md` (seeded by `init`).
 
 ### Moving from ghe-notification-watch
 
-attn was previously named ghe-notification-watch, with the command `ghe-watch` and `GHE_WATCH_*` settings. To keep an old config, rename each `GHE_WATCH_` prefix to `ATTN_` and move `~/.config/ghe-watch/env` to `~/.config/attn/env`. State under `~/.local/state/ghe-watch/` holds only acknowledgements and caches, so you can delete it.
+attn was previously named ghe-notification-watch, with the command `ghe-watch` and `GHE_WATCH_*` settings. To keep an old config, rename each `GHE_WATCH_` prefix to `ATTN_` and move `~/.config/ghe-watch/env` to `~/.config/attn/env`. State under `~/.local/state/ghe-watch/` holds only acknowledgements and caches, so you can delete it. If you ran it as a login service from a clone, remove its LaunchAgents first, or the old server keeps port 8765 and attn cannot start:
+
+```bash
+launchctl bootout gui/$(id -u)/com.$(id -un).ghe-notification-watch
+launchctl bootout gui/$(id -u)/com.$(id -un).ghe-notification-watch-window
+rm ~/Library/LaunchAgents/com.$(id -un).ghe-notification-watch*.plist
+```
+
+## Signing in
+
+Every account on your Mac can reach `127.0.0.1`, so the server refuses requests that do not carry your attn token. The token is a random value the server creates on first start, in `agent.json` beside the state file. Only your account can read it: the file is mode 0600 in a 0700 directory, and the state files beside it are 0600 too.
+
+- `attn open` asks the server for a one-time sign-in code and opens the dashboard with it. The page trades the code for a session cookie and drops it from the address bar. Codes work once, for 60 seconds. The window login item runs `attn open` at every login.
+- `attn open --print` prints a one-time sign-in link instead, for any browser.
+- Opening `http://127.0.0.1:8765` without signing in shows a page that says to run `attn open`.
+- The session cookie lasts a year and survives server restarts. To sign every browser out and replace the token, delete `agent.json` and restart the server.
+
+`attn mcp` and `attn open` read the token from `agent.json` and send it as a bearer header. Before sending it, they check that the process on the port can prove it knows the token, so a different program listening on the port while attn is stopped never receives it.
 
 ## Terminal UI
 
@@ -235,7 +252,7 @@ Homebrew installs read the same variables from `~/.config/attn/env` instead (see
 
 ## Customizing the review prompt
 
-The "Launch Codex/Claude review" action builds a prompt from a markdown template, loaded once at startup from `prompts/review.md` (override with `ATTN_REVIEW_PROMPT_FILE`). Edit that file to change the review instructions, focus areas, or output format without touching code, then restart. Available `{{placeholders}}`:
+The review actions (the dashboard's review buttons, `attn watch`, and the `attn_review_prompt` MCP tool) build a prompt from a markdown template, loaded once at startup from `prompts/review.md` (override with `ATTN_REVIEW_PROMPT_FILE`). Edit that file to change the review instructions, focus areas, or output format without touching code, then restart. Available `{{placeholders}}`:
 
 | Placeholder         | Value                                                     |
 | ------------------- | --------------------------------------------------------- |
@@ -255,7 +272,7 @@ The "Launch Codex/Claude review" action builds a prompt from a markdown template
 
 The app is read-only against GitHub. It uses existing `gh` auth and allowlists only read commands. It rejects GitHub mutation commands and non-GET API calls.
 
-The HTTP server binds to `127.0.0.1` only. Every local account can reach loopback, so a state-changing request from outside a browser (no `Sec-Fetch-Site` or `Origin` header) must send `Authorization: Bearer <token>`. The server writes a new random token and its port to `agent.json` beside the state file on every start, with mode 0600. `attn mcp` reads that file. Browser requests from the dashboard itself do not need the token, and cross-site browser requests are rejected whether or not they carry it.
+The HTTP server binds to `127.0.0.1` only. Loopback is not a boundary between accounts on the same Mac, and request headers such as `Sec-Fetch-Site` and `Origin` are easy to fake, so every page, API call, and event stream needs the attn token or the session cookie derived from it (see [Signing in](#signing-in)). Only the hashed app bundle, the token proof check, and the sign-in code exchange are served without one. The session cookie is `HttpOnly` and `SameSite=Strict`, and state-changing requests from another origin are rejected even with a valid credential.
 
 The browser never receives GitHub tokens or raw `gh` configuration. Local UI actions update local dashboard state (acknowledge), with one exception: the "open review terminal" button writes a fixed-template zsh script and opens it (in the app named by `ATTN_TERMINAL_APP`, or the system default) to check out the PR branch in your existing local clone. The app name is passed as a literal argument to `open -a`, never shell-interpreted. That script runs only local `git` commands, validates PR-author-controlled branch names before inlining them (falling back to `pull/<n>/head`), shell-escapes all free text, and refuses to touch a dirty working tree. Cached GitHub response data stays under `.local-state` and should not be committed.
 

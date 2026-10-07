@@ -40,10 +40,12 @@ const SAFE_METHODS = new Set(["GET", "HEAD", "OPTIONS"]);
 
 // Pinning Host to loopback stops DNS rebinding, but it is not a CSRF control: a
 // page on any origin can `fetch("http://127.0.0.1:8765/api/...")`, which sends a
-// loopback Host that isAllowedHost accepts. There are no credentials to steal
-// here, but the state-changing endpoints have local side effects (open-review-
-// terminal launches a process; ack mutates state). SvelteKit's built-in check
-// only covers form content types and is off in dev, so guard the origin here.
+// loopback Host that isAllowedHost accepts. The session cookie is SameSite=Strict,
+// but the state-changing endpoints have local side effects (open-review-terminal
+// launches a process; ack mutates state), so do not rely on the cookie alone.
+// SvelteKit's built-in check only covers form content types and is off in dev,
+// so guard the origin here. This is a CSRF control only: a non-browser client
+// can fake these headers, which is why hooks.server.ts authenticates first.
 export function isAllowedRequestOrigin(
   method: string,
   secFetchSite: string | null,
@@ -64,7 +66,6 @@ export function isAllowedRequestOrigin(
       return false; // opaque origins serialize to the literal "null"
     }
   }
-  // A non-browser client sends neither header. Loopback is reachable by every
-  // local account, so it must prove it can read agent.json (see agent-token.ts).
+  // A non-browser client sends neither header; only the bearer token admits it.
   return hasAgentToken;
 }

@@ -1,6 +1,6 @@
 import type { AppState, Lifecycle, StoredItem, WatchItem } from "./types";
-import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
-import { dirname } from "node:path";
+import { readFile, rename } from "node:fs/promises";
+import { writePrivateFile } from "./private-file";
 
 export function emptyState(): AppState {
   return {
@@ -45,8 +45,7 @@ export async function loadState(path: string): Promise<AppState> {
 }
 
 export async function saveState(path: string, state: AppState): Promise<void> {
-  await mkdir(dirname(path), { recursive: true });
-  await writeFile(path, JSON.stringify({ ...state, updatedAt: new Date().toISOString() }, null, 2) + "\n");
+  await writePrivateFile(path, JSON.stringify({ ...state, updatedAt: new Date().toISOString() }, null, 2) + "\n");
 }
 
 // Parse to epoch millis before comparing. GitHub timestamps have no

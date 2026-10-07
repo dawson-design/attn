@@ -1,5 +1,5 @@
-import { mkdir, readFile, writeFile } from "node:fs/promises";
-import { dirname } from "node:path";
+import { readFile } from "node:fs/promises";
+import { writePrivateFile } from "./private-file";
 import type { Snapshot } from "./types";
 
 export async function loadSnapshot(path: string): Promise<Snapshot | undefined> {
@@ -11,6 +11,5 @@ export async function loadSnapshot(path: string): Promise<Snapshot | undefined> 
 }
 
 export async function saveSnapshot(path: string, snapshot: Snapshot): Promise<void> {
-  await mkdir(dirname(path), { recursive: true });
-  await writeFile(path, JSON.stringify(snapshot, null, 2) + "\n");
+  await writePrivateFile(path, JSON.stringify(snapshot, null, 2) + "\n");
 }

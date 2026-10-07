@@ -11,7 +11,8 @@
 //                      offer the notification-window login item
 //   install-window     install the login-time Chrome window LaunchAgent
 //   uninstall-window   remove it
-//   open               open the Chrome app window now (used by the LaunchAgent)
+//   open [--print]     sign in and open the Chrome app window (used by the
+//                      LaunchAgent); --print prints a one-time link instead
 //   status [--json]    show config paths, server/agent/auth state; --json
 //                      prints waiting-item counts from the last snapshot
 //   watch [options]    terminal UI (src/cli/watch.ts)
@@ -20,7 +21,18 @@
 //                      add the MCP server to Claude Desktop's config
 
 import { spawnSync } from "node:child_process";
-import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync, copyFileSync } from "node:fs";
+import {
+  chmodSync,
+  copyFileSync,
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  realpathSync,
+  renameSync,
+  rmSync,
+  statSync,
+  writeFileSync,
+} from "node:fs";
 import { homedir, userInfo } from "node:os";
 import { dirname, resolve } from "node:path";
 import { createInterface } from "node:readline/promises";
@@ -28,8 +40,8 @@ import { fileURLToPath } from "node:url";
 import { StdioServerTransport } from "@modelcontextprotocol/server/stdio";
 import packageJson from "../../package.json" with { type: "json" };
 import { agentCredentialsPath } from "../agent-token";
+import { httpAttnClient } from "../attn-client";
 import { loadConfig } from "../config";
-import { httpAttnApi } from "../mcp/api";
 import { createAttnMcpServer } from "../mcp/server";
 import { resolveAppPaths, type AppPaths } from "../paths";
 import { loadSnapshot } from "../snapshot-cache";
@@ -45,16 +57,18 @@ export interface CliInvocation {
   force: boolean;
   help: boolean;
   json: boolean;
+  print: boolean;
   // Second word of `setup <target>`.
   target?: string;
   unknown: string[];
 }
 
 export function parseCliArgs(argv: string[]): CliInvocation {
-  const invocation: CliInvocation = { force: false, help: false, json: false, unknown: [] };
+  const invocation: CliInvocation = { force: false, help: false, json: false, print: false, unknown: [] };
   for (const arg of argv) {
     if (arg === "--force" || arg === "-f") invocation.force = true;
     else if (arg === "--json") invocation.json = true;
+    else if (arg === "--print") invocation.print = true;
     else if (arg === "--help" || arg === "-h") invocation.help = true;
     else if (arg.startsWith("-")) invocation.unknown.push(arg);
     else if (invocation.command === undefined) invocation.command = arg;
@@ -86,7 +100,8 @@ Commands:
                      offer the notification-window login item
   install-window     Open a Chrome app window to the dashboard at every login
   uninstall-window   Stop opening it
-  open               Open the Chrome app window now
+  open [--print]     Sign in and open the dashboard in a Chrome app window.
+                     --print prints a one-time sign-in link for any browser
   status [--json]    Show config paths, server, window agent, and gh auth state.
                      --json prints waiting-item counts from the last snapshot
                      (no network calls)
@@ -214,16 +229,31 @@ async function serverResponds(url: string): Promise<boolean> {
 
 // Both LaunchAgents are RunAtLoad with no ordering guarantee between them, so
 // wait for the backend before opening the window (any HTTP response counts).
-async function openWindow(): Promise<void> {
-  requireDarwin("open");
-  const url = `http://127.0.0.1:${loadConfig().port}`;
-  console.log(`==> Waiting for ${url} to respond`);
+// The URL carries a one-time login code, never the token: Chrome keeps its
+// --app URL in its process arguments, which every local account can read.
+async function openWindow(print: boolean): Promise<void> {
+  if (!print) requireDarwin("open");
+  const config = loadConfig();
+  const url = `http://127.0.0.1:${config.port}`;
+  console.error(`==> Waiting for ${url} to respond`);
   for (let attempt = 0; attempt < 30; attempt += 1) {
     if (await serverResponds(url)) break;
     await new Promise((resolveSleep) => setTimeout(resolveSleep, 1000));
   }
-  console.log("==> Opening dashboard app window");
-  run("open", ["-na", "Google Chrome", "--args", `--app=${url}`]);
+  let code: string;
+  try {
+    code = await httpAttnClient(agentCredentialsPath(config.stateFile), config.port).loginCode();
+  } catch (error) {
+    fail(error instanceof Error ? error.message : String(error));
+  }
+  const signInUrl = `${url}/#code=${code}`;
+  if (print) {
+    console.error("==> One-time sign-in link (works once, for 60 seconds):");
+    console.log(signInUrl);
+    return;
+  }
+  console.error("==> Opening dashboard app window");
+  run("open", ["-na", "Google Chrome", "--args", `--app=${signInUrl}`]);
 }
 
 // --- init ---------------------------------------------------------------------
@@ -366,7 +396,7 @@ async function statusJson(): Promise<void> {
 // stdout carries the MCP protocol from here on; diagnostics go to stderr.
 async function mcp(): Promise<void> {
   const config = loadConfig();
-  const api = httpAttnApi(agentCredentialsPath(config.stateFile));
+  const api = httpAttnClient(agentCredentialsPath(config.stateFile), config.port);
   await createAttnMcpServer(api, packageJson.version).connect(new StdioServerTransport());
 }
 
@@ -413,16 +443,28 @@ async function setupClaudeDesktop(): Promise<void> {
     return;
   }
 
-  if (existsSync(path)) {
-    const backup = `${path}.attn-backup-${new Date().toISOString().replace(/[:.]/g, "-")}`;
-    copyFileSync(path, backup);
+  writeDesktopConfig(path, change.config);
+  console.log("==> Done. Quit and reopen Claude Desktop to load the attn tools.");
+}
+
+// Writes through a symlink to its target and keeps the target's mode, so a
+// config kept in a dotfiles repo, or locked to 0600 because other servers' env
+// holds API keys, stays that way. A new file is created 0600.
+function writeDesktopConfig(path: string, config: Record<string, unknown>): void {
+  const exists = existsSync(path);
+  const target = exists ? realpathSync(path) : path;
+  const mode = exists ? statSync(target).mode & 0o777 : 0o600;
+  if (exists) {
+    const backup = `${target}.attn-backup-${new Date().toISOString().replace(/[:.]/g, "-")}`;
+    copyFileSync(target, backup);
+    chmodSync(backup, mode);
     console.log(`==> Backed up the current file to ${backup}`);
   }
-  mkdirSync(dirname(path), { recursive: true });
-  const tmp = `${path}.attn-tmp`;
-  writeFileSync(tmp, `${JSON.stringify(change.config, null, 2)}\n`);
-  renameSync(tmp, path);
-  console.log("==> Done. Quit and reopen Claude Desktop to load the attn tools.");
+  mkdirSync(dirname(target), { recursive: true });
+  const tmp = `${target}.attn-tmp`;
+  writeFileSync(tmp, `${JSON.stringify(config, null, 2)}\n`, { mode });
+  chmodSync(tmp, mode);
+  renameSync(tmp, target);
 }
 
 // --- entry --------------------------------------------------------------------
@@ -448,7 +490,7 @@ async function main(argv: string[]): Promise<void> {
     case "uninstall-window":
       return uninstallWindow();
     case "open":
-      return openWindow();
+      return openWindow(invocation.print);
     case "mcp":
       return mcp();
     case "setup":

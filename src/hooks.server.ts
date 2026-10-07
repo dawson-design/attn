@@ -1,16 +1,18 @@
-import { text, type Handle, type ServerInit } from "@sveltejs/kit";
-import { agentCredentialsPath, bearerMatches, newAgentToken, writeAgentCredentials } from "./agent-token";
+import { json, text, type Handle, type ServerInit } from "@sveltejs/kit";
+import { dirname } from "node:path";
+import { agentCredentialsPath, bearerMatches, loadOrCreateAgentToken } from "./agent-token";
+import { isAuthenticated, isPublicRequest, SESSION_COOKIE, wantsLockedPage } from "./auth";
 import { loadConfig } from "./config";
 import { isAllowedHost, isAllowedRequestOrigin } from "./host-guard";
-
-// A new token on every start, so a token copied from an old agent.json stops
-// working after a restart.
-const agentToken = newAgentToken();
+import { serverToken, setServerToken } from "./lib/server/auth-state";
+import { LOCKED_PAGE } from "./locked-page";
+import { ensurePrivateDir } from "./private-file";
 
 export const init: ServerInit = async () => {
   const config = loadConfig();
-  const port = Number(process.env.PORT) || config.port;
-  await writeAgentCredentials(agentCredentialsPath(config.stateFile), { port, token: agentToken });
+  // Tighten a state directory created before files were written owner-only.
+  await ensurePrivateDir(dirname(config.stateFile));
+  setServerToken(await loadOrCreateAgentToken(agentCredentialsPath(config.stateFile)));
 };
 
 // Reject requests whose Host header is not a loopback (or explicitly allowed)
@@ -30,16 +32,33 @@ export const handle: Handle = async ({ event, resolve }) => {
     });
   }
 
-  // Reject cross-site state-changing requests (CSRF). The Host guard above only
-  // stops rebinding; this stops a page on another origin from driving /api/*.
+  // Every other local account can reach loopback, and request headers are easy
+  // to fake, so data and actions need the token (bearer) or the session cookie
+  // derived from it. See auth.ts.
   const request = event.request;
+  const { pathname } = event.url;
+  const token = serverToken();
+  const authorization = request.headers.get("authorization");
+  if (
+    !isPublicRequest(request.method, pathname) &&
+    !isAuthenticated(token, authorization, event.cookies.get(SESSION_COOKIE))
+  ) {
+    if (wantsLockedPage(request.method, pathname)) {
+      return new Response(LOCKED_PAGE, { status: 401, headers: { "Content-Type": "text/html; charset=utf-8" } });
+    }
+    return json({ ok: false, error: "Not signed in. Run `attn open`." }, { status: 401 });
+  }
+
+  // Reject cross-site state-changing requests (CSRF). The session cookie is
+  // SameSite=Strict, and this check stops a page on another origin from
+  // driving /api/* even in a browser that ignores SameSite.
   if (
     !isAllowedRequestOrigin(
       request.method,
       request.headers.get("sec-fetch-site"),
       request.headers.get("origin"),
       extraHosts,
-      bearerMatches(agentToken, request.headers.get("authorization")),
+      bearerMatches(token, authorization),
     )
   ) {
     return text("Forbidden: cross-origin request rejected.\n", { status: 403 });

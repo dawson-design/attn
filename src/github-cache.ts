@@ -1,5 +1,5 @@
-import { mkdir, readFile, writeFile } from "node:fs/promises";
-import { dirname } from "node:path";
+import { readFile } from "node:fs/promises";
+import { writePrivateFile } from "./private-file";
 import type { RawSearchItem } from "./types";
 
 export interface GithubCacheEntry<T = unknown> {
@@ -56,8 +56,7 @@ export async function loadGithubCache(path: string, host?: string): Promise<Gith
 }
 
 export async function saveGithubCache(path: string, cache: GithubCache): Promise<void> {
-  await mkdir(dirname(path), { recursive: true });
-  await writeFile(path, JSON.stringify(cache, null, 2) + "\n");
+  await writePrivateFile(path, JSON.stringify(cache, null, 2) + "\n");
 }
 
 function isFresh(fetchedAt: string | undefined, ttlSeconds: number, now = new Date()): boolean {

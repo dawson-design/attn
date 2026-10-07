@@ -1,17 +1,18 @@
-// Credentials for local non-browser clients (the `attn mcp` proxy). The server
-// writes a fresh random token and its port to agent.json beside the state file
-// on every start; a client must send the token as a bearer header on any
-// state-changing request that carries no browser fetch metadata. The file is
-// mode 0600, so only the user running the server can read it, which keeps
-// other local accounts from driving /api/* over loopback.
+// The local credential for attn. The server creates one random token on first
+// start and keeps it in agent.json beside the state file (mode 0600, in a 0700
+// directory), so only the user running attn can read it. Every /api and
+// /events request must carry it, either as a bearer header (`attn mcp`,
+// `attn open`) or as the browser session cookie derived from it (see auth.ts).
+// Loopback is reachable by every local account and request headers are easy to
+// fake, so the token is the only thing that separates this user from others.
+//
+// The token survives restarts so a running browser session and the MCP client
+// keep working after `brew services restart`. Delete agent.json and restart
+// the server to rotate it.
 import { randomBytes, timingSafeEqual } from "node:crypto";
-import { chmod, mkdir, readFile, rename, writeFile } from "node:fs/promises";
+import { link, readFile, unlink, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
-
-export interface AgentCredentials {
-  port: number;
-  token: string;
-}
+import { ensurePrivateDir } from "./private-file";
 
 export function agentCredentialsPath(stateFile: string): string {
   return join(dirname(stateFile), "agent.json");
@@ -21,17 +22,7 @@ export function newAgentToken(): string {
   return randomBytes(32).toString("base64url");
 }
 
-export async function writeAgentCredentials(path: string, credentials: AgentCredentials): Promise<void> {
-  await mkdir(dirname(path), { recursive: true });
-  const tmp = `${path}.${process.pid}.tmp`;
-  await writeFile(tmp, `${JSON.stringify(credentials)}\n`, { mode: 0o600 });
-  // writeFile's mode only applies when it creates the file; chmod covers a
-  // leftover temp file from a crashed run.
-  await chmod(tmp, 0o600);
-  await rename(tmp, path);
-}
-
-export async function readAgentCredentials(path: string): Promise<AgentCredentials | undefined> {
+export async function readAgentToken(path: string): Promise<string | undefined> {
   let raw: string;
   try {
     raw = await readFile(path, "utf8");
@@ -39,18 +30,45 @@ export async function readAgentCredentials(path: string): Promise<AgentCredentia
     return undefined;
   }
   try {
-    const parsed = JSON.parse(raw) as Partial<AgentCredentials>;
-    if (!Number.isSafeInteger(parsed.port) || typeof parsed.token !== "string" || !parsed.token) return undefined;
-    return { port: parsed.port as number, token: parsed.token };
+    const parsed = JSON.parse(raw) as { token?: unknown };
+    return typeof parsed.token === "string" && parsed.token.length >= 32 ? parsed.token : undefined;
   } catch {
     return undefined;
   }
 }
 
+// Returns the existing token, or creates one. The token is written to a temp
+// file and hard-linked into place: link() fails if agent.json already exists
+// and never exposes a half-written file, so two servers starting at once agree
+// on a single token.
+export async function loadOrCreateAgentToken(path: string): Promise<string> {
+  const existing = await readAgentToken(path);
+  if (existing) return existing;
+  await ensurePrivateDir(dirname(path));
+  const token = newAgentToken();
+  const tmp = `${path}.${process.pid}.${randomBytes(4).toString("hex")}.tmp`;
+  await writeFile(tmp, `${JSON.stringify({ token })}\n`, { mode: 0o600 });
+  try {
+    await link(tmp, path);
+    return token;
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
+    const raced = await readAgentToken(path);
+    if (raced) return raced;
+    throw new Error(`${path} exists but holds no valid token; delete it and restart attn`, { cause: error });
+  } finally {
+    await unlink(tmp).catch(() => undefined);
+  }
+}
+
+export function safeEqual(expected: string, given: string): boolean {
+  const a = Buffer.from(expected);
+  const b = Buffer.from(given);
+  return a.length === b.length && timingSafeEqual(a, b);
+}
+
 // Constant-time comparison of an Authorization header against the token.
 export function bearerMatches(expected: string | undefined, authorization: string | null): boolean {
   if (!expected || !authorization?.startsWith("Bearer ")) return false;
-  const given = Buffer.from(authorization.slice("Bearer ".length));
-  const wanted = Buffer.from(expected);
-  return given.length === wanted.length && timingSafeEqual(given, wanted);
+  return safeEqual(expected, authorization.slice("Bearer ".length));
 }

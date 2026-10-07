@@ -7,5 +7,8 @@ export default defineConfig({
   server: {
     host: "127.0.0.1",
     port: Number(process.env.ATTN_PORT || 8765),
+    // Fail instead of moving to the next port: `attn mcp` and `attn open`
+    // connect to the configured port.
+    strictPort: true,
   },
 });

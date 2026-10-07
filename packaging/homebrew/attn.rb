@@ -45,7 +45,7 @@ class Attn < Formula
         2. attn init                                (writes ~/.config/attn/env)
         3. brew services start attn
 
-      Dashboard: http://127.0.0.1:8765
+      Dashboard: attn open   (signs the browser in; http://127.0.0.1:8765)
       Desktop notifications need the Chrome window login item — `attn init`
       offers it, or run `attn install-window` / `attn open`.
 

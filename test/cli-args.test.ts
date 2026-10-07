@@ -4,7 +4,14 @@ import { parseEnvFile } from "../src/config-file";
 
 describe("parseCliArgs", () => {
   test("picks the first bare word as the command", () => {
-    expect(parseCliArgs(["init"])).toEqual({ command: "init", force: false, help: false, json: false, unknown: [] });
+    expect(parseCliArgs(["init"])).toEqual({
+      command: "init",
+      force: false,
+      help: false,
+      json: false,
+      print: false,
+      unknown: [],
+    });
   });
 
   test("recognizes --force and --help in any position", () => {
