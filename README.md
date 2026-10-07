@@ -92,7 +92,7 @@ The plugin adds:
 
 - the `attn` MCP server (it runs `attn mcp`, so `attn` must be on your `PATH`);
 - `/attn:triage`, which lists what is waiting and proposes an action for each item;
-- `/attn:review`, which reviews a pull request in a temporary git worktree of your local clone and never posts to GitHub;
+- `/attn:review`, which fetches a pull request into your local clone without checking it out, reviews it from git, and never posts to GitHub;
 - a session-start line such as "attn: 2 review requests, 1 mention waiting on github.com", read from the last snapshot with no network calls. It prints nothing when nothing is waiting.
 
 The Code tab in Claude Desktop keeps its own plugin list, so install the plugin there too if you use it.
@@ -265,10 +265,11 @@ The review actions (the dashboard's review buttons, `attn watch`, and the `attn_
 | `{{title}}`         | PR title                                                  |
 | `{{url}}`           | PR URL (reference only)                                   |
 | `{{base}}`          | base branch (validated, defaults to `main`)               |
-| `{{branch}}`        | branch to review (head branch, or `pr-<number>`)          |
+| `{{branch}}`        | local ref the PR head is fetched into, `refs/attn/pr-<n>` |
+| `{{baseRef}}`       | local ref the base is fetched into, `refs/attn/base-<n>`  |
 | `{{prBranch}}`      | head branch name, or a note when missing/unsafe to inline |
 | `{{localCheckout}}` | local checkout path, or a "not found" note                |
-| `{{setup}}`         | the git-checkout shell block                              |
+| `{{setup}}`         | the git-fetch shell block                                 |
 
 `{{setup}}` is **code-generated**, not something the template defines: it contains the git commands the agent runs, built from PR-author-controlled branch names that are validated (`safeRef`) before being inlined. The template lays out prose around it but cannot alter those commands, so editing the template can't introduce shell injection. Unknown placeholders are left as-is so typos are visible.
 
@@ -278,7 +279,9 @@ The app is read-only against GitHub. It uses existing `gh` auth and allowlists o
 
 The HTTP server binds to `127.0.0.1` only. Loopback is not a boundary between accounts on the same Mac, and request headers such as `Sec-Fetch-Site` and `Origin` are easy to fake, so every page, API call, and event stream needs the attn token or the session cookie derived from it (see [Signing in](#signing-in)). Only the static app bundle (`/_app/`), the favicon, the token proof check, and the sign-in code exchange are served without one. The session cookie is `HttpOnly` and `SameSite=Strict`, and state-changing requests from another origin are rejected even with a valid credential.
 
-The browser never receives GitHub tokens or raw `gh` configuration. Local UI actions update local dashboard state (acknowledge), with one exception: the "open review terminal" button writes a fixed-template zsh script and opens it (in the app named by `ATTN_TERMINAL_APP`, or the system default) to check out the PR branch in your existing local clone. The app name is passed as a literal argument to `open -a`, never shell-interpreted. That script runs only local `git` commands, validates PR-author-controlled branch names before inlining them (falling back to `pull/<n>/head`), shell-escapes all free text, and refuses to touch a dirty working tree. Cached GitHub response data stays under `.local-state` and should not be committed.
+The browser never receives GitHub tokens or raw `gh` configuration. Local UI actions update local dashboard state (acknowledge), with one exception: the "open review terminal" button writes a fixed-template zsh script and opens it (in the app named by `ATTN_TERMINAL_APP`, or the system default). The app name is passed as a literal argument to `open -a`, never shell-interpreted. That script runs one `git fetch` in your existing local clone, validates the PR-author-controlled base branch name before inlining it, and shell-escapes all free text. Cached GitHub response data stays under `.local-state` and should not be committed.
+
+Reviews never check out a pull request. The review terminal, the review prompt, and `/attn:review` fetch the PR into `refs/attn/pr-<n>` and its base into `refs/attn/base-<n>`, and read them with `git diff`, `git show`, and `git grep`. A checkout would put files the PR author wrote into your clone, where tools run them: Claude Code loads hooks from `.claude/settings.json` and servers from `.mcp.json`, git runs hooks from a versioned `core.hooksPath` such as `.husky/`, and direnv reads `.envrc`. With nothing checked out, an agent started in your clone, by `attn watch` or by you, loads only your own branch's configuration.
 
 ## Checks
 
