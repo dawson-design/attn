@@ -1,6 +1,17 @@
-import { text, type Handle } from "@sveltejs/kit";
+import { text, type Handle, type ServerInit } from "@sveltejs/kit";
+import { agentCredentialsPath, bearerMatches, newAgentToken, writeAgentCredentials } from "./agent-token";
 import { loadConfig } from "./config";
 import { isAllowedHost, isAllowedRequestOrigin } from "./host-guard";
+
+// A new token on every start, so a token copied from an old agent.json stops
+// working after a restart.
+const agentToken = newAgentToken();
+
+export const init: ServerInit = async () => {
+  const config = loadConfig();
+  const port = Number(process.env.PORT) || config.port;
+  await writeAgentCredentials(agentCredentialsPath(config.stateFile), { port, token: agentToken });
+};
 
 // Reject requests whose Host header is not a loopback (or explicitly allowed)
 // host. This is the DNS-rebinding guard adapter-node does not provide; see
@@ -28,6 +39,7 @@ export const handle: Handle = async ({ event, resolve }) => {
       request.headers.get("sec-fetch-site"),
       request.headers.get("origin"),
       extraHosts,
+      bearerMatches(agentToken, request.headers.get("authorization")),
     )
   ) {
     return text("Forbidden: cross-origin request rejected.\n", { status: 403 });

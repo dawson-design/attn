@@ -91,6 +91,18 @@ done
 [[ -n "$state_written" ]] || { echo "FAIL: no state files under XDG_STATE_HOME" >&2; exit 1; }
 echo "ok: state written under XDG state dir"
 
+# Non-browser state changes need the bearer token from agent.json.
+AGENT_FILE="$WORK/state/attn/agent.json"
+[[ -f "$AGENT_FILE" ]] || { echo "FAIL: no agent.json under XDG state dir" >&2; exit 1; }
+check "agent.json mode" 600 "$(stat -f '%Lp' "$AGENT_FILE")"
+TOKEN="$(bun -e 'console.log(JSON.parse(require("fs").readFileSync(process.argv[1], "utf8")).token)' "$AGENT_FILE")"
+check "tokenless POST rejected" 403 \
+    "$(curl -s -o /dev/null -w '%{http_code}' -m 5 -X POST -H 'Content-Type: application/json' -d '{"ids":[]}' "$BASE_URL/api/ack")"
+check "wrong-token POST rejected" 403 \
+    "$(curl -s -o /dev/null -w '%{http_code}' -m 5 -X POST -H 'Authorization: Bearer wrong' -H 'Content-Type: application/json' -d '{"ids":[]}' "$BASE_URL/api/ack")"
+check "token POST accepted" 200 \
+    "$(curl -s -o /dev/null -w '%{http_code}' -m 5 -X POST -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' -d '{"ids":[]}' "$BASE_URL/api/ack")"
+
 [[ ! -e "$WORK/.local-state" ]] || { echo "FAIL: cwd-relative .local-state was created" >&2; exit 1; }
 echo "ok: nothing written relative to cwd"
 

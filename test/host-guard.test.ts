@@ -60,9 +60,19 @@ describe("isAllowedRequestOrigin", () => {
     expect(isAllowedRequestOrigin("POST", null, "null")).toBe(false);
   });
 
-  test("allows non-browser clients that send neither header", () => {
-    // curl / the CLI carry no ambient authority, so they are not a CSRF vector.
-    expect(isAllowedRequestOrigin("POST", null, null)).toBe(true);
+  test("rejects a non-browser state change without the agent token", () => {
+    // Any local account can reach loopback, so a header-less POST needs proof
+    // that the caller can read agent.json.
+    expect(isAllowedRequestOrigin("POST", null, null)).toBe(false);
+    expect(isAllowedRequestOrigin("POST", null, null, [], false)).toBe(false);
+  });
+
+  test("allows a non-browser state change that carries the agent token", () => {
+    expect(isAllowedRequestOrigin("POST", null, null, [], true)).toBe(true);
+  });
+
+  test("the agent token does not override a cross-site browser request", () => {
+    expect(isAllowedRequestOrigin("POST", "cross-site", "https://evil.example", [], true)).toBe(false);
   });
 
   test("honors the allowed-hosts escape hatch for the Origin fallback", () => {

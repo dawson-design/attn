@@ -49,15 +49,14 @@ export function isAllowedRequestOrigin(
   secFetchSite: string | null,
   origin: string | null,
   extraHosts: Iterable<string> = [],
+  hasAgentToken = false,
 ): boolean {
   if (SAFE_METHODS.has(method.toUpperCase())) return true;
   // Fetch metadata is the most reliable signal and is set by every current
   // browser. "same-origin" is the dashboard's own fetch(); "none" is a user
   // gesture (typed URL, bookmark). "same-site"/"cross-site" are not us.
   if (secFetchSite) return secFetchSite === "same-origin" || secFetchSite === "none";
-  // Older browsers omit Sec-Fetch-Site but still send Origin on a POST. A
-  // non-browser client (curl, the CLI) sends neither and carries no ambient
-  // authority, so it is not a CSRF vector — allow it.
+  // Older browsers omit Sec-Fetch-Site but still send Origin on a POST.
   if (origin) {
     try {
       return isAllowedHost(new URL(origin).host, extraHosts);
@@ -65,5 +64,7 @@ export function isAllowedRequestOrigin(
       return false; // opaque origins serialize to the literal "null"
     }
   }
-  return true;
+  // A non-browser client sends neither header. Loopback is reachable by every
+  // local account, so it must prove it can read agent.json (see agent-token.ts).
+  return hasAgentToken;
 }
