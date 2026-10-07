@@ -78,6 +78,16 @@ The Code tab in Claude Desktop keeps its own plugin list, so install the plugin 
 
 To use the MCP server without the plugin, run `claude mcp add attn -- attn mcp`.
 
+### Claude Desktop
+
+```bash
+attn setup claude-desktop
+```
+
+This adds an `attn` entry to `~/Library/Application Support/Claude/claude_desktop_config.json`, after showing it to you and backing the file up. It uses the absolute path of the Homebrew `attn` command, because Claude Desktop does not read your shell's `PATH`. Quit and reopen Claude Desktop, then ask it what is waiting on you.
+
+attn has no `.mcpb` extension for Claude Desktop, because an extension must bundle its server and attn's server runs from the Homebrew install.
+
 Everything below describes running from a clone — for development, or a non-Homebrew install.
 
 ## Prerequisites (macOS)

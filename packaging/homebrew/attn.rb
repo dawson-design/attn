@@ -4,7 +4,7 @@
 # the result to kreek/homebrew-tap as Formula/attn.rb — do not edit the
 # copy in the tap by hand.
 class Attn < Formula
-  desc "Local read-only GitHub notification dashboard with desktop notifications"
+  desc "Dashboard of the GitHub pull requests and issues waiting on you"
   homepage "https://github.com/kreek/attn"
   url "__URL__"
   sha256 "__SHA256__"
@@ -48,6 +48,9 @@ class Attn < Formula
       Dashboard: http://127.0.0.1:8765
       Desktop notifications need the Chrome window login item — `attn init`
       offers it, or run `attn install-window` / `attn open`.
+
+      Claude Code: /plugin marketplace add kreek/attn, then /plugin install attn@attn
+      Claude Desktop: attn setup claude-desktop
     EOS
   end
 

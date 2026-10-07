@@ -16,9 +16,11 @@
 //                      prints waiting-item counts from the last snapshot
 //   watch [options]    terminal UI (src/cli/watch.ts)
 //   mcp                MCP server on stdio, proxying to the running server
+//   setup claude-desktop
+//                      add the MCP server to Claude Desktop's config
 
 import { spawnSync } from "node:child_process";
-import { existsSync, mkdirSync, rmSync, writeFileSync, copyFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync, copyFileSync } from "node:fs";
 import { homedir, userInfo } from "node:os";
 import { dirname, resolve } from "node:path";
 import { createInterface } from "node:readline/promises";
@@ -33,6 +35,7 @@ import { resolveAppPaths, type AppPaths } from "../paths";
 import { loadSnapshot } from "../snapshot-cache";
 import { loadState } from "../state";
 import type { AppState, ItemKind, Snapshot } from "../types";
+import { attnServerEntry, claudeDesktopConfigPath, mergeDesktopConfig } from "./claude-desktop";
 import { applyCurrentLifecycle } from "./watch-core";
 import { runWatch } from "./watch";
 import { renderWindowPlist, windowAgentLabel } from "./window-agent";
@@ -42,6 +45,8 @@ export interface CliInvocation {
   force: boolean;
   help: boolean;
   json: boolean;
+  // Second word of `setup <target>`.
+  target?: string;
   unknown: string[];
 }
 
@@ -53,6 +58,7 @@ export function parseCliArgs(argv: string[]): CliInvocation {
     else if (arg === "--help" || arg === "-h") invocation.help = true;
     else if (arg.startsWith("-")) invocation.unknown.push(arg);
     else if (invocation.command === undefined) invocation.command = arg;
+    else if (invocation.command === "setup" && invocation.target === undefined) invocation.target = arg;
     else invocation.unknown.push(arg);
   }
   return invocation;
@@ -87,6 +93,9 @@ Commands:
   watch [options]    Terminal UI; run \`attn watch --help\` for options
   mcp                MCP server on stdio for Claude and other agents; needs
                      the dashboard server running
+  setup claude-desktop
+                     Add the attn MCP server to Claude Desktop's config
+                     (asks first and backs the file up)
 `;
 
 function installRoot(): string | undefined {
@@ -361,6 +370,61 @@ async function mcp(): Promise<void> {
   await createAttnMcpServer(api, packageJson.version).connect(new StdioServerTransport());
 }
 
+// --- setup claude-desktop -------------------------------------------------------
+
+async function setupClaudeDesktop(): Promise<void> {
+  requireDarwin("setup claude-desktop");
+  // The config entry must survive `brew upgrade`, so it uses the wrapper's
+  // stable opt path. A clone has no single command that finds its config from
+  // any working directory, so only installs are supported.
+  const attnBin = process.env.ATTN_BIN?.trim();
+  if (!installRoot() || !attnBin) {
+    fail("`setup claude-desktop` needs the Homebrew install (brew install kreek/tap/attn)");
+  }
+  const path = claudeDesktopConfigPath(homedir());
+  let existing: unknown;
+  if (existsSync(path)) {
+    try {
+      existing = JSON.parse(readFileSync(path, "utf8"));
+    } catch {
+      fail(`${path} is not valid JSON; fix it before running setup`);
+    }
+  }
+  const entry = attnServerEntry(attnBin);
+  let change;
+  try {
+    change = mergeDesktopConfig(existing, entry);
+  } catch (error) {
+    fail(error instanceof Error ? error.message : String(error));
+  }
+  if (change.kind === "unchanged") {
+    console.log(`==> Claude Desktop already runs attn from ${attnBin}`);
+    return;
+  }
+
+  console.log(`==> This adds an "attn" MCP server to ${path}:`);
+  console.log(JSON.stringify({ attn: entry }, null, 2));
+  if (change.replaced) console.log(`    It replaces the current attn entry: ${JSON.stringify(change.replaced)}`);
+  const rl = createInterface({ input: process.stdin, output: process.stdout });
+  const answer = (await rl.question("Write it? [y/N]: ")).trim().toLowerCase();
+  rl.close();
+  if (answer !== "y" && answer !== "yes") {
+    console.log("==> Left the file unchanged.");
+    return;
+  }
+
+  if (existsSync(path)) {
+    const backup = `${path}.attn-backup-${new Date().toISOString().replace(/[:.]/g, "-")}`;
+    copyFileSync(path, backup);
+    console.log(`==> Backed up the current file to ${backup}`);
+  }
+  mkdirSync(dirname(path), { recursive: true });
+  const tmp = `${path}.attn-tmp`;
+  writeFileSync(tmp, `${JSON.stringify(change.config, null, 2)}\n`);
+  renameSync(tmp, path);
+  console.log("==> Done. Quit and reopen Claude Desktop to load the attn tools.");
+}
+
 // --- entry --------------------------------------------------------------------
 
 async function main(argv: string[]): Promise<void> {
@@ -387,6 +451,10 @@ async function main(argv: string[]): Promise<void> {
       return openWindow();
     case "mcp":
       return mcp();
+    case "setup":
+      if (invocation.target !== "claude-desktop")
+        fail(`unknown setup target: ${invocation.target ?? "(none)"}\n\n${HELP}`);
+      return setupClaudeDesktop();
     case "status":
       return invocation.json ? statusJson() : status();
     default:
