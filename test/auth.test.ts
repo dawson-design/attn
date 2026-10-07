@@ -1,52 +1,38 @@
 import { describe, expect, test } from "bun:test";
-import { newAgentToken } from "../src/agent-token";
-import {
-  isAuthenticated,
-  isPublicRequest,
-  isValidNonce,
-  LOGIN_CODE_TTL_MS,
-  LoginCodes,
-  serverProof,
-  wantsLockedPage,
-} from "../src/auth";
-
-const token = newAgentToken();
+import { isAuthenticated, isPublicRequest, LOGIN_CODE_TTL_MS, LoginCodes, wantsLockedPage } from "../src/auth";
 
 describe("isAuthenticated", () => {
   const sessions = { has: (id: string | undefined) => id === "live-session" };
 
-  test("accepts the bearer token or a live session", () => {
-    expect(isAuthenticated(token, `Bearer ${token}`, undefined, sessions)).toBe(true);
-    expect(isAuthenticated(token, null, "live-session", sessions)).toBe(true);
+  test("accepts a live session token as a bearer header", () => {
+    expect(isAuthenticated("Bearer live-session", sessions)).toBe(true);
   });
 
-  test("rejects requests with no credential, whatever browser headers they claim", () => {
-    // Sec-Fetch-Site and Origin are not inputs here: any local process can fake them.
-    expect(isAuthenticated(token, null, undefined, sessions)).toBe(false);
-  });
-
-  test("rejects an unknown session and the raw token as a cookie", () => {
-    expect(isAuthenticated(token, null, "revoked-session", sessions)).toBe(false);
-    expect(isAuthenticated(token, null, token, sessions)).toBe(false);
+  test("rejects requests with no token or a revoked one, whatever else they claim", () => {
+    // Sec-Fetch-Site and Origin are not inputs: any local process can send them.
+    expect(isAuthenticated(null, sessions)).toBe(false);
+    expect(isAuthenticated("Bearer revoked", sessions)).toBe(false);
+    expect(isAuthenticated("live-session", sessions)).toBe(false);
+    expect(isAuthenticated("Basic live-session", sessions)).toBe(false);
   });
 });
 
 describe("public requests", () => {
-  test("serves the app bundle, the proof check, and the code exchange without a credential", () => {
+  test("serves the data-free page shell, the app bundle, and the code exchange without a session", () => {
+    expect(isPublicRequest("GET", "/")).toBe(true);
     expect(isPublicRequest("GET", "/_app/immutable/entry/start.js")).toBe(true);
     expect(isPublicRequest("GET", "/favicon.png")).toBe(true);
-    expect(isPublicRequest("GET", "/api/agent-proof")).toBe(true);
     expect(isPublicRequest("POST", "/api/session")).toBe(true);
   });
 
   test("protects the page, the data, the event stream, and every action", () => {
     for (const [method, path] of [
-      ["GET", "/"],
+      ["GET", "/__data.json"],
+      ["GET", "/anything-else"],
       ["GET", "/api/items"],
       ["GET", "/events"],
       ["POST", "/api/ack"],
       ["POST", "/api/open-review-terminal"],
-      ["POST", "/api/login-code"],
       ["GET", "/api/session"],
     ]) {
       expect(isPublicRequest(method, path)).toBe(false);
@@ -88,21 +74,5 @@ describe("LoginCodes", () => {
     const first = codes.issue(0);
     for (let index = 0; index < 20; index += 1) codes.issue(0);
     expect(codes.redeem(first, 1)).toBe(false);
-  });
-});
-
-describe("server proof", () => {
-  test("depends on the token and the nonce", () => {
-    const nonce = "a".repeat(32);
-    expect(serverProof(token, nonce)).toBe(serverProof(token, nonce));
-    expect(serverProof(newAgentToken(), nonce)).not.toBe(serverProof(token, nonce));
-    expect(serverProof(token, "b".repeat(32))).not.toBe(serverProof(token, nonce));
-  });
-
-  test("accepts only well-formed nonces", () => {
-    expect(isValidNonce("a".repeat(16))).toBe(true);
-    expect(isValidNonce("short")).toBe(false);
-    expect(isValidNonce(null)).toBe(false);
-    expect(isValidNonce("a".repeat(15) + "/")).toBe(false);
   });
 });

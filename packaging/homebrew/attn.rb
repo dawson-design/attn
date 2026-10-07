@@ -42,10 +42,13 @@ class Attn < Formula
     <<~EOS
       Quick start:
         1. gh auth login --hostname <your-github-host>   (skip for github.com)
-        2. attn init                                (writes ~/.config/attn/env)
+        2. attn init                                (writes ~/.config/attn/env and
+                                                     trusts attn's HTTPS certificate)
         3. brew services start attn
 
-      Dashboard: attn open   (signs the browser in; http://127.0.0.1:8765)
+      Dashboard: https://attn.localhost:8765 (run `attn open` to sign in)
+      If `attn status` says the certificate is not trusted (for example after
+      upgrading from an earlier attn), run `attn setup https`.
       Desktop notifications need the Chrome window login item — `attn init`
       offers it, or run `attn install-window` / `attn open`.
 

@@ -14,7 +14,7 @@ import type { AppState, Config, Snapshot, WatchItemDetails } from "../../types";
 import { discoverWorkspaceRepos } from "../../workspace";
 
 type Client = ReadableStreamDefaultController<string>;
-const SERVICE_VERSION = 14;
+const SERVICE_VERSION = 15;
 
 /**
  * Seams for tests. Production passes nothing and gets the real wiring: local
@@ -55,6 +55,7 @@ interface DashboardService {
   refresh(options?: { force?: boolean }): Promise<Snapshot>;
   addClient(client: Client): void;
   removeClient(client: Client): void;
+  closeClients(): void;
   acknowledge(ids: string[], acknowledged: boolean): Promise<void>;
   getItemDetails(id: string): Promise<{ ok: true; details: WatchItemDetails }>;
   buildAgentReviewPrompt(id: string): Promise<{ ok: true; prompt: string }>;
@@ -96,6 +97,16 @@ export async function createService(deps: ServiceDeps = {}): Promise<DashboardSe
       };
 
   const clients = new Set<Client>();
+  const closeClients = () => {
+    for (const client of clients) {
+      try {
+        client.close();
+      } catch {
+        // Already closed by the browser.
+      }
+    }
+    clients.clear();
+  };
   let nextRefreshAllowedAt = githubCache.rateLimitUntil ? Date.parse(githubCache.rateLimitUntil) : 0;
   let refreshInFlight: Promise<Snapshot> | undefined;
 
@@ -237,17 +248,13 @@ export async function createService(deps: ServiceDeps = {}): Promise<DashboardSe
       await launchTerminal(path, config.terminalApp);
       return { ok: true };
     },
+    // Ends every event stream; `attn signout` uses it so a revoked session
+    // stops receiving snapshots.
+    closeClients,
     // Stops polling and ends every event stream, so the server can exit.
     dispose: () => {
       if (interval) clearInterval(interval);
-      for (const client of clients) {
-        try {
-          client.close();
-        } catch {
-          // Already closed by the browser.
-        }
-      }
-      clients.clear();
+      closeClients();
     },
   };
 }

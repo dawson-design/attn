@@ -29,7 +29,7 @@ launchctl kickstart -k "$DOMAIN/$LABEL"
 
 # Give the new process a moment to bind, then health-check.
 sleep 1
-CODE="$(curl -sS -o /dev/null -w '%{http_code}' "http://127.0.0.1:$PORT" || echo 000)"
-echo "==> http://127.0.0.1:$PORT -> HTTP $CODE"
+CODE="$(curl -sS -o /dev/null -w '%{http_code}' "https://attn.localhost:$PORT" || echo 000)"
+echo "==> https://attn.localhost:$PORT -> HTTP $CODE (401 means up and locked)"
 echo "--- tail service.err.log ---"
 tail -n 15 "$APP_DIR/.local-state/logs/service.err.log" 2>/dev/null || true

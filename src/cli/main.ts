@@ -18,10 +18,13 @@
 //                      prints waiting-item counts from the last snapshot
 //   watch [options]    terminal UI (src/cli/watch.ts)
 //   mcp                MCP server on stdio, proxying to the running server
+//   setup https        trust attn's TLS certificate in the login keychain
 //   setup claude-desktop
 //                      add the MCP server to Claude Desktop's config
 
 import { spawnSync } from "node:child_process";
+import type { RequestListener } from "node:http";
+import { createServer as createHttpsServer, request as httpsRequest, type Server as HttpsServer } from "node:https";
 import {
   chmodSync,
   copyFileSync,
@@ -41,15 +44,24 @@ import { createInterface } from "node:readline/promises";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { StdioServerTransport } from "@modelcontextprotocol/server/stdio";
 import packageJson from "../../package.json" with { type: "json" };
-import { agentCredentialsPath } from "../agent-token";
-import { httpAttnClient } from "../attn-client";
+import { agentSocketPath, AttnNotRunningError, socketAttnClient } from "../attn-client";
 import { loadConfig } from "../config";
 import { createAttnMcpServer } from "../mcp/server";
-import { writePrivateFile } from "../private-file";
+import { ensurePrivateDir, writePrivateFile } from "../private-file";
+import { dashboardOrigin } from "../host-guard";
+import {
+  createCertificate,
+  ensureCertificate,
+  isTrusted,
+  needsRenewal,
+  readCertificate,
+  tlsPath,
+  trustCertificate,
+} from "../tls";
 import { resolveAppPaths, type AppPaths } from "../paths";
 import { loadSnapshot } from "../snapshot-cache";
 import { loadState } from "../state";
-import type { AppState, ItemKind, Snapshot } from "../types";
+import type { AppState, Config, ItemKind, Snapshot } from "../types";
 import { attnServerEntry, claudeDesktopConfigPath, mergeDesktopConfig } from "./claude-desktop";
 import { applyCurrentLifecycle } from "./watch-core";
 import { runWatch } from "./watch";
@@ -112,6 +124,8 @@ Commands:
   watch [options]    Terminal UI; run \`attn watch --help\` for options
   mcp                MCP server on stdio for Claude and other agents; needs
                      the dashboard server running
+  setup https        Have macOS trust attn's certificate for
+                     https://attn.localhost (asks for your password once)
   setup claude-desktop
                      Add the attn MCP server to Claude Desktop's config
                      (asks first and backs the file up)
@@ -159,15 +173,91 @@ function windowAgentPlistPath(label: string): string {
 
 async function serve(): Promise<void> {
   const config = loadConfig();
-  // Loopback binding is part of the security model — never widen it here.
-  process.env.HOST = "127.0.0.1";
-  process.env.PORT ||= String(config.port);
+  const stateDir = dirname(config.stateFile);
+  await ensurePrivateDir(stateDir);
+  // Credentials from earlier attn versions, which nothing reads any more.
+  for (const stale of ["agent.json", "sessions.json"]) rmSync(join(stateDir, stale), { force: true });
+  const certificate = ensureCertificate(tlsPath(config.stateFile));
+  // adapter-node's handler builds request URLs from ORIGIN.
+  process.env.ORIGIN = dashboardOrigin(config.port);
   const root = installRoot();
-  const entry = root ? `${root}/server/index.js` : `${repoRoot()}/build/index.js`;
+  const entry = root ? `${root}/server/handler.js` : `${repoRoot()}/build/handler.js`;
   if (!existsSync(entry)) {
     fail(`server entry not found: ${entry}${root ? "" : " — run 'bun run build' first"}`);
   }
-  await import(entry);
+  // Bind 127.0.0.1 before loading the app, so a program already holding the
+  // port stops attn before it opens the agent socket or hands out a link.
+  let app: RequestListener | undefined;
+  const server = createHttpsServer({ key: certificate.key, cert: certificate.cert }, (request, response) => {
+    if (app) return app(request, response);
+    response.writeHead(503).end("attn is starting\n");
+  });
+  try {
+    // Loopback binding is part of the security model — never widen it here.
+    await new Promise<void>((resolveListen, rejectListen) => {
+      server.once("error", rejectListen);
+      server.listen(config.port, "127.0.0.1", () => {
+        server.off("error", rejectListen);
+        resolveListen();
+      });
+    });
+  } catch (error) {
+    fail(`could not listen on 127.0.0.1:${config.port}: ${error instanceof Error ? error.message : String(error)}`);
+  }
+  // Importing the handler runs the server's init (src/hooks.server.ts), which
+  // holds the port on [::1] and opens the agent socket.
+  try {
+    app = ((await import(entry)) as { handler: RequestListener }).handler;
+  } catch (error) {
+    fail(error instanceof Error ? error.message : String(error));
+  }
+  console.log(`attn is serving ${dashboardOrigin(config.port)}`);
+  for (const signal of ["SIGTERM", "SIGINT"] as const) process.once(signal, () => void shutDown(server));
+}
+
+function shutdownHook(): (() => Promise<void>) | undefined {
+  return (globalThis as { attnShutdown?: () => Promise<void> }).attnShutdown;
+}
+
+// Stops accepting connections, ends the dashboard's event streams (which
+// never end on their own), and removes the agent socket, then exits.
+async function shutDown(server: HttpsServer): Promise<void> {
+  setTimeout(() => process.exit(0), 5000).unref();
+  server.close();
+  server.closeIdleConnections();
+  await shutdownHook()?.();
+  server.closeAllConnections();
+  process.exit(0);
+}
+
+// --- setup https ----------------------------------------------------------------
+
+async function setupHttps(): Promise<void> {
+  requireDarwin("setup https");
+  const config = loadConfig();
+  const stateDir = dirname(config.stateFile);
+  await ensurePrivateDir(stateDir);
+  const path = tlsPath(config.stateFile);
+  let certificate = ensureCertificate(path);
+  let renewed = false;
+  if (needsRenewal(certificate)) {
+    certificate = createCertificate(path);
+    renewed = true;
+    console.log("==> Created a new certificate, because the old one expires within 30 days.");
+  }
+  const until = certificate.expiresAt.toISOString().slice(0, 10);
+  if (isTrusted(certificate, stateDir)) {
+    console.log(`==> Your Mac already trusts attn's certificate (valid until ${until}).`);
+    return;
+  }
+  console.log(`==> attn serves the dashboard at ${dashboardOrigin(config.port)} with its own certificate.`);
+  console.log("    It is valid only for attn.localhost, and its key stays in attn's state directory.");
+  console.log("    macOS will ask for your password to trust it.");
+  if (!trustCertificate(certificate, stateDir) || !isTrusted(certificate, stateDir)) {
+    throw new Error("macOS did not trust the certificate. Run `attn setup https` to try again.");
+  }
+  console.log(`==> Trusted until ${until}. Run \`attn setup https\` again then to renew it.`);
+  if (renewed) console.log("    Restart attn to use the new certificate: brew services restart attn");
 }
 
 // --- window agent -------------------------------------------------------------
@@ -207,7 +297,7 @@ function installWindow(): void {
   run("launchctl", ["bootout", `${launchdDomain()}/${label}`], { allowFailure: true });
   run("launchctl", ["bootstrap", launchdDomain(), plistPath]);
   run("launchctl", ["kickstart", "-k", `${launchdDomain()}/${label}`]);
-  console.log(`==> Done. A Chrome app window opens once http://127.0.0.1:${config.port} responds.`);
+  console.log("==> Done. A Chrome app window opens and signs in once the attn server is running.");
   console.log("    First time only: click 'Enable notifications' in the dashboard header and Allow");
   console.log("    the Chrome permission prompt so new items trigger a macOS notification.");
 }
@@ -221,15 +311,6 @@ function uninstallWindow(): void {
 }
 
 // --- open ---------------------------------------------------------------------
-
-async function serverResponds(url: string): Promise<boolean> {
-  try {
-    await fetch(url, { signal: AbortSignal.timeout(2000) });
-    return true;
-  } catch {
-    return false;
-  }
-}
 
 // A page that forwards to the sign-in link. Chrome keeps its --app URL in its
 // process arguments, which every local account can read with `ps`, so the
@@ -254,24 +335,55 @@ async function openSignInWindow(stateFile: string, signInUrl: string): Promise<v
   }
 }
 
-// Both LaunchAgents are RunAtLoad with no ordering guarantee between them, so
-// wait for the backend before opening the window (any HTTP response counts).
+// The dev server sets up its socket on its first request, and at login the
+// window agent can start before the server, so poke the port and retry for
+// up to 30 seconds. The poke sends nothing but a bare GET.
+// Certificate checks are off because this request carries nothing and its
+// answer is discarded; it only wakes a dev server.
+function poke(port: number): Promise<void> {
+  return new Promise((resolvePoke) => {
+    const outgoing = httpsRequest(
+      { host: "127.0.0.1", port, path: "/", rejectUnauthorized: false, timeout: 1000 },
+      (incoming) => {
+        incoming.resume();
+        resolvePoke();
+      },
+    );
+    outgoing.on("error", () => resolvePoke());
+    outgoing.on("timeout", () => outgoing.destroy());
+    outgoing.end();
+  });
+}
+
+async function signInUrlWhenReady(config: Config): Promise<string> {
+  const client = socketAttnClient(agentSocketPath(config.stateFile));
+  for (let attempt = 0; ; attempt += 1) {
+    try {
+      return await client.signInUrl();
+    } catch (error) {
+      if (!(error instanceof AttnNotRunningError) || attempt >= 30) throw error;
+      if (attempt === 0) console.error("==> Waiting for the attn server");
+      await poke(config.port);
+      await new Promise((resolveSleep) => setTimeout(resolveSleep, 1000));
+    }
+  }
+}
+
 async function openWindow(print: boolean): Promise<void> {
   if (!print) requireDarwin("open");
   const config = loadConfig();
-  const url = `http://127.0.0.1:${config.port}`;
-  console.error(`==> Waiting for ${url} to respond`);
-  for (let attempt = 0; attempt < 30; attempt += 1) {
-    if (await serverResponds(url)) break;
-    await new Promise((resolveSleep) => setTimeout(resolveSleep, 1000));
-  }
-  let code: string;
+  let signInUrl: string;
   try {
-    code = await httpAttnClient(agentCredentialsPath(config.stateFile), config.port).loginCode();
+    signInUrl = await signInUrlWhenReady(config);
   } catch (error) {
     fail(error instanceof Error ? error.message : String(error));
   }
-  const signInUrl = `${url}/#code=${code}`;
+  const certificate = readCertificate(tlsPath(config.stateFile));
+  if (!certificate || !isTrusted(certificate, dirname(config.stateFile))) {
+    fail(
+      "Your Mac does not trust attn's certificate yet, so the browser would refuse the dashboard. Run `attn setup https` once.",
+    );
+  }
   if (print) {
     console.error("==> One-time sign-in link (works once, for 60 seconds):");
     console.log(signInUrl);
@@ -285,7 +397,7 @@ async function openWindow(print: boolean): Promise<void> {
 async function signOut(): Promise<void> {
   const config = loadConfig();
   try {
-    const revoked = await httpAttnClient(agentCredentialsPath(config.stateFile), config.port).signOutAll();
+    const revoked = await socketAttnClient(agentSocketPath(config.stateFile)).signOutAll();
     console.log(
       `==> Signed out ${revoked} browser session${revoked === 1 ? "" : "s"}. Run \`attn open\` to sign in again.`,
     );
@@ -317,6 +429,14 @@ async function init(force: boolean): Promise<void> {
     console.log(`==> Wrote ${configFile}`);
     seedReviewPrompt(paths);
     checkGhAuth(host);
+
+    // Only the browser dashboard needs the certificate; agents use the socket,
+    // so a declined password prompt must not stop the rest of setup.
+    if (process.platform === "darwin") {
+      await setupHttps().catch((error: unknown) =>
+        console.warn(`WARNING: ${error instanceof Error ? error.message : String(error)}`),
+      );
+    }
 
     if (process.platform === "darwin") {
       const answer = (await rl.question("Open a Chrome notification window at login? [Y/n]: ")).trim().toLowerCase();
@@ -370,8 +490,23 @@ async function status(): Promise<void> {
   console.log(`state file:   ${config.stateFile}`);
   console.log(`host:         ${config.host}`);
 
-  const url = `http://127.0.0.1:${config.port}`;
-  console.log(`server:       ${(await serverResponds(url)) ? `responding at ${url}` : `not responding at ${url}`}`);
+  const socket = agentSocketPath(config.stateFile);
+  const running = await socketAttnClient(socket)
+    .items()
+    .then(() => true)
+    .catch(() => false);
+  console.log(`server:       ${running ? "running" : "not running"} (port ${config.port}, socket ${socket})`);
+  console.log(`dashboard:    ${dashboardOrigin(config.port)}`);
+  const certificate = readCertificate(tlsPath(config.stateFile));
+  const until = certificate?.expiresAt.toISOString().slice(0, 10);
+  const https = !certificate
+    ? "no certificate yet (attn creates one on start; then run `attn setup https`)"
+    : !isTrusted(certificate, dirname(config.stateFile))
+      ? "certificate not trusted: run `attn setup https`"
+      : needsRenewal(certificate)
+        ? `certificate expires ${until}: run \`attn setup https\` to renew`
+        : `trusted until ${until}`;
+  console.log(`https:        ${https}`);
 
   if (process.platform === "darwin") {
     const label = windowAgentLabel(userInfo().username);
@@ -434,7 +569,7 @@ async function statusJson(): Promise<void> {
 // stdout carries the MCP protocol from here on; diagnostics go to stderr.
 async function mcp(): Promise<void> {
   const config = loadConfig();
-  const api = httpAttnClient(agentCredentialsPath(config.stateFile), config.port);
+  const api = socketAttnClient(agentSocketPath(config.stateFile));
   await createAttnMcpServer(api, packageJson.version).connect(new StdioServerTransport());
 }
 
@@ -534,6 +669,9 @@ async function main(argv: string[]): Promise<void> {
     case "signout":
       return signOut();
     case "setup":
+      if (invocation.target === "https") {
+        return setupHttps().catch((error: unknown) => fail(error instanceof Error ? error.message : String(error)));
+      }
       if (invocation.target !== "claude-desktop")
         fail(`unknown setup target: ${invocation.target ?? "(none)"}\n\n${HELP}`);
       return setupClaudeDesktop();

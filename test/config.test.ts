@@ -82,13 +82,6 @@ describe("loadConfig", () => {
     expect(config.stateFile).toBe(`${process.cwd()}/.local-state/attn/state.json`);
     expect(config.checkoutRoots).toEqual([process.cwd()]);
   });
-
-  test("parses the Host-header allowlist from the environment", () => {
-    process.env.ATTN_ALLOWED_HOSTS = "proxy.internal, dashboard.local ,";
-    expect(loadConfig().allowedHosts).toEqual(["proxy.internal", "dashboard.local"]);
-    delete process.env.ATTN_ALLOWED_HOSTS;
-    expect(loadConfig().allowedHosts).toEqual([]);
-  });
 });
 
 describe("loadConfig installed mode", () => {
@@ -99,10 +92,10 @@ describe("loadConfig installed mode", () => {
   });
 
   test("reads values from the config file and defaults state to XDG dirs", async () => {
-    dir = await installedModeDir("ATTN_HOST=ghe.example.com\nATTN_ALLOWED_HOSTS=proxy.internal\n");
+    dir = await installedModeDir("ATTN_HOST=ghe.example.com\nATTN_LIMIT=7\n");
     const config = loadConfig();
     expect(config.host).toBe("ghe.example.com");
-    expect(config.allowedHosts).toEqual(["proxy.internal"]);
+    expect(config.limit).toBe(7);
     expect(config.stateFile).toBe(`${dir}/state/attn/state.json`);
     expect(config.snapshotFile).toBe(`${dir}/state/attn/snapshot.json`);
     expect(config.cacheFile).toBe(`${dir}/state/attn/github-cache.json`);

@@ -2,7 +2,7 @@
 <html lang="en">
   <head>
     <meta charset="utf-8" />
-    <script>
+    <script nonce="%sveltekit.nonce%">
       // Applied before first paint to avoid a flash of the wrong theme.
       const stored = localStorage.getItem("theme");
       const dark = stored ? stored === "dark" : matchMedia("(prefers-color-scheme: dark)").matches;

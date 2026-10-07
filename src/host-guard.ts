@@ -1,11 +1,11 @@
-// Host-header allowlisting for the local dashboard. The server binds 127.0.0.1,
-// but loopback binding alone does not stop DNS rebinding: a page on an attacker
-// domain whose DNS re-resolves to 127.0.0.1 becomes same-origin with this
-// dashboard in the browser, and SvelteKit's built-in CSRF check only covers
-// form content types — JSON POSTs to /api/* (including the terminal launcher)
-// sail through. A rebound request still carries the attacker's original Host
-// (e.g. "evil.example"), so pinning Host to loopback closes the vector.
-const LOOPBACK_HOSTS = new Set(["localhost", "127.0.0.1", "[::1]", "::1"]);
+// Host-header and origin rules for the local dashboard.
+//
+// The dashboard lives at https://attn.localhost:<port>. Only that Host is
+// served. Pinning Host stops DNS rebinding: a page on an attacker domain whose
+// DNS re-resolves to 127.0.0.1 still sends its own name in Host (and fails
+// the TLS name check before that). See tls.ts for why the address is safe to
+// keep fixed.
+import { DASHBOARD_HOSTNAME } from "./tls";
 
 // The hostname portion of a Host header, minus the port. Handles bracketed IPv6
 // ("[::1]:8765" -> "[::1]") and host:port ("127.0.0.1:8765" -> "127.0.0.1").
@@ -18,54 +18,47 @@ export function hostnameOf(hostHeader: string): string {
   return colon === -1 ? hostHeader : hostHeader.slice(0, colon);
 }
 
-// Parse the ATTN_ALLOWED_HOSTS escape hatch (comma-separated hostnames for
-// reverse-proxy / container setups that front the dashboard with another name).
-export function parseAllowedHostsEnv(raw: string | undefined): string[] {
-  return (raw || "")
-    .split(",")
-    .map((entry) => entry.trim())
-    .filter(Boolean);
+export function dashboardHost(port: number): string {
+  return `${DASHBOARD_HOSTNAME}:${port}`;
 }
 
-export function isAllowedHost(hostHeader: string, extraHosts: Iterable<string> = []): boolean {
-  const allowed = new Set(LOOPBACK_HOSTS);
-  for (const extra of extraHosts) {
-    const trimmed = extra.trim().toLowerCase();
-    if (trimmed) allowed.add(trimmed);
-  }
-  return allowed.has(hostnameOf(hostHeader).toLowerCase());
+export function dashboardOrigin(port: number): string {
+  return `https://${dashboardHost(port)}`;
+}
+
+const LOOPBACK_HOSTS = new Set(["localhost", "127.0.0.1", "[::1]"]);
+
+// "dashboard": attn.localhost on attn's port, the only Host that serves data.
+// "local": another loopback name, such as 127.0.0.1. It gets the locked page
+// and nothing else.
+// "foreign": anything else, e.g. a rebound attacker domain. Rejected.
+export type HostKind = "dashboard" | "local" | "foreign";
+
+export function classifyHost(hostHeader: string, currentDashboardHost: string): HostKind {
+  const host = hostHeader.toLowerCase();
+  if (host === currentDashboardHost) return "dashboard";
+  const name = hostnameOf(host);
+  return LOOPBACK_HOSTS.has(name) || name.endsWith(".localhost") ? "local" : "foreign";
 }
 
 const SAFE_METHODS = new Set(["GET", "HEAD", "OPTIONS"]);
 
-// Pinning Host to loopback stops DNS rebinding, but it is not a CSRF control: a
-// page on any origin can `fetch("http://127.0.0.1:8765/api/...")`, which sends a
-// loopback Host that isAllowedHost accepts. The session cookie is SameSite=Strict,
-// but the state-changing endpoints have local side effects (open-review-terminal
-// launches a process; ack mutates state), so do not rely on the cookie alone.
-// SvelteKit's built-in check only covers form content types and is off in dev,
-// so guard the origin here. This is a CSRF control only: a non-browser client
-// can fake these headers, which is why hooks.server.ts authenticates first.
+// CSRF guard for state-changing requests. The session token is a header the
+// page adds itself, which another origin cannot, but the endpoints have local
+// side effects (open-review-terminal launches a process; ack mutates state),
+// so the origin is checked too. SvelteKit's built-in check only covers form content
+// types and is off in dev. A non-browser client can fake these headers, which
+// is why hooks.server.ts requires a session first.
 export function isAllowedRequestOrigin(
   method: string,
   secFetchSite: string | null,
   origin: string | null,
-  extraHosts: Iterable<string> = [],
-  hasAgentToken = false,
+  currentDashboardOrigin: string,
 ): boolean {
   if (SAFE_METHODS.has(method.toUpperCase())) return true;
-  // Fetch metadata is the most reliable signal and is set by every current
-  // browser. "same-origin" is the dashboard's own fetch(); "none" is a user
-  // gesture (typed URL, bookmark). "same-site"/"cross-site" are not us.
+  // Fetch metadata is set by every current browser. "same-origin" is the
+  // dashboard's own fetch(); "none" is a user gesture (typed URL, bookmark).
   if (secFetchSite) return secFetchSite === "same-origin" || secFetchSite === "none";
   // Older browsers omit Sec-Fetch-Site but still send Origin on a POST.
-  if (origin) {
-    try {
-      return isAllowedHost(new URL(origin).host, extraHosts);
-    } catch {
-      return false; // opaque origins serialize to the literal "null"
-    }
-  }
-  // A non-browser client sends neither header; only the bearer token admits it.
-  return hasAgentToken;
+  return origin === currentDashboardOrigin;
 }

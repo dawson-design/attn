@@ -1,13 +1,18 @@
-// Client for the running attn server, used by `attn mcp` and `attn open`.
-// It never runs the fetch pipeline itself, so the server stays the only writer
-// of state.json.
+// Client for the running attn server's agent API (lib/server/agent-socket.ts),
+// used by `attn mcp`, `attn open`, and `attn signout`. It never runs the fetch
+// pipeline itself, so the server stays the only writer of state.json.
 //
-// Before every call it checks the server proof (auth.ts): when attn is
-// stopped, another local account can listen on the port, and that process must
-// neither receive the token nor have its answers treated as attn's.
-import { readAgentToken } from "./agent-token";
-import { newNonce, serverProof } from "./auth";
+// It talks over the Unix socket in the owner-only state directory, and checks
+// that this user owns both before connecting, so it cannot be pointed at a
+// socket another account made.
+import { request } from "node:http";
+import { lstat, stat } from "node:fs/promises";
+import { dirname, join } from "node:path";
 import type { Snapshot } from "./types";
+
+export function agentSocketPath(stateFile: string): string {
+  return join(dirname(stateFile), "attn.sock");
+}
 
 export interface AttnApi {
   items(): Promise<Snapshot>;
@@ -17,7 +22,7 @@ export interface AttnApi {
 }
 
 export interface AttnClient extends AttnApi {
-  loginCode(): Promise<string>;
+  signInUrl(): Promise<string>;
   signOutAll(): Promise<number>;
 }
 
@@ -27,64 +32,90 @@ export class AttnNotRunningError extends Error {
   }
 }
 
-export class NotAttnError extends Error {
-  constructor(port: number) {
-    super(
-      `Something other than attn is answering on 127.0.0.1:${port}, so attn did not send it your token. ` +
-        `See what is listening with \`lsof -nP -iTCP:${port} -sTCP:LISTEN\`.`,
-    );
+export class UntrustedSocketError extends Error {
+  constructor(path: string, reason: string) {
+    super(`attn did not connect to ${path}: ${reason}. attn's state directory must belong to you with mode 0700.`);
   }
 }
 
 const TIMEOUT_MS = 120_000;
+// Bun reports a socket nobody listens on as FailedToOpenSocket, Node as ECONNREFUSED.
+const NOT_RUNNING = new Set(["ENOENT", "ECONNREFUSED", "FailedToOpenSocket"]);
 
-export function httpAttnClient(credentialsPath: string, port: number, fetchImpl: typeof fetch = fetch): AttnClient {
-  const base = `http://127.0.0.1:${port}`;
-
-  async function send(path: string, init: RequestInit): Promise<Response> {
-    try {
-      return await fetchImpl(`${base}${path}`, { ...init, signal: AbortSignal.timeout(TIMEOUT_MS) });
-    } catch {
-      throw new AttnNotRunningError();
-    }
+async function checkOwnership(path: string): Promise<void> {
+  const uid = process.getuid?.();
+  if (uid === undefined) return;
+  let socket;
+  try {
+    socket = await lstat(path);
+  } catch {
+    throw new AttnNotRunningError();
   }
+  const dir = await stat(dirname(path));
+  if (dir.uid !== uid || (dir.mode & 0o077) !== 0) throw new UntrustedSocketError(path, "its directory is not private");
+  if (socket.uid !== uid || !socket.isSocket()) throw new UntrustedSocketError(path, "it is not your socket");
+}
 
-  async function verifyServer(token: string): Promise<void> {
-    const nonce = newNonce();
-    const response = await send(`/api/agent-proof?nonce=${nonce}`, { method: "GET" });
-    const body = (await response.json().catch(() => undefined)) as { proof?: unknown } | undefined;
-    if (!response.ok || body?.proof !== serverProof(token, nonce)) throw new NotAttnError(port);
-  }
+interface Reply {
+  status: number;
+  payload: unknown;
+}
 
-  // Reads agent.json on every call, so a rotated token is picked up without
-  // restarting the MCP client.
-  async function call<T>(method: "GET" | "POST", path: string, body?: unknown): Promise<T> {
-    const token = await readAgentToken(credentialsPath);
-    if (!token) throw new AttnNotRunningError();
-    await verifyServer(token);
-    const response = await send(path, {
-      method,
-      headers: {
-        Authorization: `Bearer ${token}`,
-        ...(body === undefined ? {} : { "Content-Type": "application/json" }),
+function send(path: string, method: "GET" | "POST", route: string, body?: unknown): Promise<Reply> {
+  const data = body === undefined ? undefined : JSON.stringify(body);
+  return new Promise((resolve, reject) => {
+    const outgoing = request(
+      {
+        socketPath: path,
+        method,
+        path: route,
+        timeout: TIMEOUT_MS,
+        headers: data === undefined ? {} : { "Content-Type": "application/json" },
       },
-      body: body === undefined ? undefined : JSON.stringify(body),
-    });
-    const payload = (await response.json().catch(() => undefined)) as { error?: string } | undefined;
-    if (!response.ok) {
-      throw new Error(payload?.error ?? `attn returned HTTP ${response.status} for ${path}`);
+      (incoming) => {
+        let text = "";
+        incoming.setEncoding("utf8");
+        incoming.on("data", (chunk: string) => (text += chunk));
+        incoming.on("error", reject);
+        incoming.on("end", () => {
+          let payload: unknown;
+          try {
+            payload = JSON.parse(text);
+          } catch {
+            payload = undefined;
+          }
+          resolve({ status: incoming.statusCode ?? 0, payload });
+        });
+      },
+    );
+    outgoing.on("timeout", () => outgoing.destroy(new Error("attn did not answer within 120 seconds.")));
+    outgoing.on("error", (error: NodeJS.ErrnoException) =>
+      reject(error.code && NOT_RUNNING.has(error.code) ? new AttnNotRunningError() : error),
+    );
+    outgoing.end(data);
+  });
+}
+
+export function socketAttnClient(path: string): AttnClient {
+  async function call<T>(method: "GET" | "POST", route: string, body?: unknown): Promise<T> {
+    await checkOwnership(path);
+    const { status, payload } = await send(path, method, route, body);
+    if (status < 200 || status >= 300) {
+      throw new Error(
+        (payload as { error?: string } | undefined)?.error ?? `attn returned HTTP ${status} for ${route}`,
+      );
     }
     return payload as T;
   }
 
   return {
-    items: () => call<Snapshot>("GET", "/api/items"),
+    items: () => call<Snapshot>("GET", "/items"),
     acknowledge: async (ids, acknowledged) => {
-      await call("POST", "/api/ack", { ids, acknowledged });
+      await call("POST", "/ack", { ids, acknowledged });
     },
-    reviewPrompt: async (id) => (await call<{ prompt: string }>("POST", "/api/review-prompt", { id })).prompt,
-    refresh: () => call<Snapshot>("POST", "/api/refresh", { force: false }),
-    loginCode: async () => (await call<{ code: string }>("POST", "/api/login-code")).code,
-    signOutAll: async () => (await call<{ revoked: number }>("POST", "/api/signout")).revoked,
+    reviewPrompt: async (id) => (await call<{ prompt: string }>("POST", "/review-prompt", { id })).prompt,
+    refresh: () => call<Snapshot>("POST", "/refresh"),
+    signInUrl: async () => (await call<{ url: string }>("POST", "/sign-in")).url,
+    signOutAll: async () => (await call<{ revoked: number }>("POST", "/signout")).revoked,
   };
 }

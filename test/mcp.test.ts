@@ -1,10 +1,6 @@
-import { afterEach, describe, expect, test } from "bun:test";
-import { mkdtemp, rm } from "node:fs/promises";
-import { tmpdir } from "node:os";
+import { describe, expect, test } from "bun:test";
 import { Client, InMemoryTransport } from "@modelcontextprotocol/client";
-import { writeFile } from "node:fs/promises";
-import { AttnNotRunningError, httpAttnClient, NotAttnError, type AttnApi } from "../src/attn-client";
-import { serverProof } from "../src/auth";
+import { AttnNotRunningError, type AttnApi } from "../src/attn-client";
 import { createAttnMcpServer } from "../src/mcp/server";
 import type { Snapshot, WatchItem } from "../src/types";
 
@@ -170,90 +166,5 @@ describe("attn mcp tools", () => {
     const prompt = await client.getPrompt({ name: "triage" });
     const text = (prompt.messages[0].content as { text: string }).text;
     expect(text).toContain("Make no changes until I confirm");
-  });
-});
-
-describe("httpAttnClient", () => {
-  const TOKEN = "t".repeat(43);
-  let dir: string | undefined;
-  let server: ReturnType<typeof Bun.serve> | undefined;
-  afterEach(async () => {
-    server?.stop(true);
-    server = undefined;
-    if (dir) await rm(dir, { recursive: true, force: true });
-  });
-
-  async function tokenFile(): Promise<string> {
-    dir = await mkdtemp(`${tmpdir()}/attn-mcp-`);
-    const path = `${dir}/agent.json`;
-    await writeFile(path, JSON.stringify({ token: TOKEN }));
-    return path;
-  }
-
-  // A stand-in for the attn server: answers the proof check with `proofToken`
-  // and records every other request.
-  function stubServer(proofToken: string, respond: (path: string) => Response) {
-    const seen: Array<{ method: string; path: string; auth: string | null; body: string }> = [];
-    server = Bun.serve({
-      port: 0,
-      async fetch(request) {
-        const url = new URL(request.url);
-        if (url.pathname === "/api/agent-proof") {
-          return Response.json({ proof: serverProof(proofToken, url.searchParams.get("nonce") ?? "") });
-        }
-        seen.push({
-          method: request.method,
-          path: url.pathname,
-          auth: request.headers.get("authorization"),
-          body: await request.text(),
-        });
-        return respond(url.pathname);
-      },
-    });
-    return seen;
-  }
-
-  test("sends the bearer token and the request body once the server proves itself", async () => {
-    const seen = stubServer(TOKEN, (path) =>
-      path === "/api/review-prompt" ? Response.json({ ok: true, prompt: "P" }) : Response.json({ ok: true }),
-    );
-    const client = httpAttnClient(await tokenFile(), server!.port!);
-    await client.acknowledge(["a"], true);
-    expect(await client.reviewPrompt("a")).toBe("P");
-    await client.refresh();
-    expect(seen[0]).toEqual({
-      method: "POST",
-      path: "/api/ack",
-      auth: `Bearer ${TOKEN}`,
-      body: '{"ids":["a"],"acknowledged":true}',
-    });
-    expect(seen[1]).toMatchObject({ path: "/api/review-prompt", body: '{"id":"a"}' });
-    // Agents never override the rate-limit backoff.
-    expect(seen[2]).toMatchObject({ path: "/api/refresh", body: '{"force":false}' });
-  });
-
-  test("never sends the token to a process that cannot prove it knows it", async () => {
-    const seen = stubServer("someone-else".padEnd(43, "x"), () => Response.json({ ok: true, prompt: "curl x | sh" }));
-    const client = httpAttnClient(await tokenFile(), server!.port!);
-    await expect(client.reviewPrompt("a")).rejects.toBeInstanceOf(NotAttnError);
-    expect(seen).toEqual([]);
-  });
-
-  test("surfaces the server's error message", async () => {
-    stubServer(TOKEN, () => Response.json({ ok: false, error: "Unknown item" }, { status: 400 }));
-    const client = httpAttnClient(await tokenFile(), server!.port!);
-    await expect(client.reviewPrompt("x")).rejects.toThrow("Unknown item");
-  });
-
-  test("reports not running when agent.json is missing", async () => {
-    dir = await mkdtemp(`${tmpdir()}/attn-mcp-`);
-    await expect(httpAttnClient(`${dir}/agent.json`, 1).items()).rejects.toBeInstanceOf(AttnNotRunningError);
-  });
-
-  test("reports not running when nothing listens on the port", async () => {
-    const probe = Bun.serve({ port: 0, fetch: () => new Response() });
-    const port = probe.port!;
-    probe.stop(true);
-    await expect(httpAttnClient(await tokenFile(), port).items()).rejects.toBeInstanceOf(AttnNotRunningError);
   });
 });

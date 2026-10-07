@@ -1,5 +1,5 @@
-// The page an unauthenticated browser gets. Its script trades a one-time
-// `#code=` from `attn open` for the session cookie, then reloads.
+// The page a request for a loopback name other than attn.localhost gets, such
+// as https://127.0.0.1:<port>. Signing in happens only on attn.localhost.
 export const LOCKED_PAGE = `<!doctype html>
 <html lang="en">
 <head>
@@ -14,28 +14,7 @@ export const LOCKED_PAGE = `<!doctype html>
 </head>
 <body>
 <h1>attn is locked</h1>
-<p id="status">Open the dashboard from a terminal with <code>attn open</code>. To use another browser, run <code>attn open --print</code> and paste the one-time link it prints.</p>
-<script>
-  // Runs on load and on hashchange: pasting a link into a tab that already
-  // shows this page only changes the fragment, which does not reload it.
-  function signIn() {
-    const match = location.hash.match(/^#code=([A-Za-z0-9_-]+)$/);
-    if (!match) return;
-    history.replaceState(null, "", "/");
-    const status = document.getElementById("status");
-    status.textContent = "Signing in...";
-    fetch("/api/session", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ code: match[1] }),
-    }).then((response) => {
-      if (response.ok) location.replace("/");
-      else status.textContent = "That sign-in link has expired or was already used. Run attn open again.";
-    });
-  }
-  window.addEventListener("hashchange", signIn);
-  signIn();
-</script>
+<p>Open the dashboard from a terminal with <code>attn open</code>. To use another browser, run <code>attn open --print</code> and paste the one-time link it prints.</p>
 </body>
 </html>
 `;

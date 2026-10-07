@@ -52,6 +52,6 @@ launchctl bootout "$DOMAIN/$LABEL" 2>/dev/null || true
 launchctl bootstrap "$DOMAIN" "$PLIST_DST"
 launchctl kickstart -k "$DOMAIN/$LABEL"
 
-echo "==> Done. Dashboard: http://127.0.0.1:$PORT"
+echo "==> Done. Open the dashboard with: bun run cli open"
 echo "    status: launchctl print $DOMAIN/$LABEL"
 echo "    logs:   $APP_DIR/.local-state/logs/service.{out,err}.log"

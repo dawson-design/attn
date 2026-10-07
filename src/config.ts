@@ -1,7 +1,6 @@
 import { homedir } from "node:os";
 import type { Config } from "./types";
 import { loadConfigFileEnv } from "./config-file";
-import { parseAllowedHostsEnv } from "./host-guard";
 import { resolveAppPaths } from "./paths";
 import { loadReviewPromptTemplate } from "./review-prompt";
 
@@ -91,9 +90,6 @@ export function loadConfig(): Config {
     // ATTN_REVIEW_PROMPT_FILE elsewhere) and restart to pick up changes.
     reviewPromptTemplate: loadReviewPromptTemplate(stringFrom(env, "ATTN_REVIEW_PROMPT_FILE", paths.reviewPromptFile)),
     terminalApp: env.ATTN_TERMINAL_APP?.trim() || undefined,
-    // Extra Host-header names accepted by the DNS-rebinding guard
-    // (hooks.server.ts); loopback is always allowed.
-    allowedHosts: parseAllowedHostsEnv(env.ATTN_ALLOWED_HOSTS),
     limit: numberFrom(env, "ATTN_LIMIT", 50),
     issueLimit: numberFrom(env, "ATTN_ISSUE_LIMIT", 25),
     issueCommentItemLimit: countFrom(env, "ATTN_ISSUE_COMMENT_ITEM_LIMIT", 5),
