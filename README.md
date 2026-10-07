@@ -45,6 +45,39 @@ attn was previously named ghe-notification-watch, with the command `ghe-watch` a
 
 Run either the terminal UI or the server, not both. Both write the same state file without locking, so an acknowledgement made in one can be lost when the other saves.
 
+## Use with Claude
+
+`attn mcp` is an MCP server on stdio. It talks to the running dashboard server, so start that first (`brew services start attn`). It gives an agent four tools:
+
+| Tool                 | What it does                                                                                |
+| -------------------- | ------------------------------------------------------------------------------------------- |
+| `attn_items`         | Lists waiting items, review requests first. Filters by kind; can include acknowledged ones. |
+| `attn_ack`           | Acknowledges or unacknowledges items in attn's local state. Writes nothing to GitHub.       |
+| `attn_review_prompt` | Returns the local review prompt for a pull request, plus the path of your local clone.      |
+| `attn_refresh`       | Re-queries GitHub now instead of waiting for the next poll.                                 |
+
+It also offers a `triage` prompt that proposes an action for each item and changes nothing until you confirm. Every GitHub call still goes through the read-only `gh` allowlist, so no tool can write to GitHub.
+
+### Claude Code
+
+Install the plugin from this repo's marketplace:
+
+```text
+/plugin marketplace add kreek/attn
+/plugin install attn@attn
+```
+
+The plugin adds:
+
+- the `attn` MCP server (it runs `attn mcp`, so `attn` must be on your `PATH`);
+- `/attn:triage`, which lists what is waiting and proposes an action for each item;
+- `/attn:review`, which reviews a pull request in a temporary git worktree of your local clone and never posts to GitHub;
+- a session-start line such as "attn: 2 review requests, 1 mention waiting on github.com", read from the last snapshot with no network calls. It prints nothing when nothing is waiting.
+
+The Code tab in Claude Desktop keeps its own plugin list, so install the plugin there too if you use it.
+
+To use the MCP server without the plugin, run `claude mcp add attn -- attn mcp`.
+
 Everything below describes running from a clone — for development, or a non-Homebrew install.
 
 ## Prerequisites (macOS)

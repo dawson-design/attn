@@ -1,0 +1,12 @@
+{
+  "name": "attn",
+  "version": "0.1.0",
+  "description": "GitHub pull requests and issues waiting on you, from the attn dashboard: MCP tools, triage and review skills, and a session-start summary.",
+  "author": {
+    "name": "Alastair Dawson"
+  },
+  "homepage": "https://github.com/kreek/attn",
+  "repository": "https://github.com/kreek/attn",
+  "license": "MIT",
+  "keywords": ["github", "code-review", "notifications", "mcp"]
+}

@@ -1,0 +1,22 @@
+{
+  "name": "attn",
+  "owner": {
+    "name": "Alastair Dawson",
+    "url": "https://github.com/kreek"
+  },
+  "metadata": {
+    "description": "attn: GitHub pull requests and issues waiting on you, in Claude Code."
+  },
+  "plugins": [
+    {
+      "name": "attn",
+      "description": "MCP tools, triage and review skills, and a session-start summary for the attn dashboard.",
+      "author": {
+        "name": "Alastair Dawson"
+      },
+      "homepage": "https://github.com/kreek/attn",
+      "license": "MIT",
+      "source": "./claude-plugin"
+    }
+  ]
+}

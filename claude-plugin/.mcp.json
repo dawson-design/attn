@@ -1,0 +1,9 @@
+{
+  "mcpServers": {
+    "attn": {
+      "type": "stdio",
+      "command": "attn",
+      "args": ["mcp"]
+    }
+  }
+}
