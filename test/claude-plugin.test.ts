@@ -16,6 +16,19 @@ describe("session-start hook line", () => {
     );
   });
 
+  test("says how old a snapshot is once it is over an hour old", () => {
+    const status = {
+      host: "github.com",
+      generatedAt: "2026-10-01T00:00:00Z",
+      waiting: 1,
+      waitingByKind: { ...zero, issue_mention: 1 },
+    };
+    const fresh = Date.parse("2026-10-01T00:30:00Z");
+    const stale = Date.parse("2026-10-03T06:00:00Z");
+    expect(contextLine(status, fresh)).toStartWith("attn: 1 mention waiting on github.com. ");
+    expect(contextLine(status, stale)).toContain("(as of 2 days ago; is the attn server running?)");
+  });
+
   test("stays silent when nothing is waiting or the status is malformed", () => {
     expect(contextLine({ host: "github.com", waiting: 0, waitingByKind: zero })).toBe("");
     expect(contextLine(undefined)).toBe("");

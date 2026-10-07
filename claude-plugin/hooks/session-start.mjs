@@ -11,13 +11,29 @@ const LABELS = {
   issue_comment: ["issue comment", "issue comments"],
 };
 
-export function contextLine(status) {
+const HOUR_MS = 60 * 60 * 1000;
+
+// The snapshot only moves while the server runs, so say how old it is once
+// it is older than a few default poll intervals.
+function ageNote(generatedAt, now) {
+  const age = now - Date.parse(generatedAt);
+  if (!Number.isFinite(age) || age < HOUR_MS) return "";
+  const hours = Math.floor(age / HOUR_MS);
+  const days = Math.floor(hours / 24);
+  const ago = days >= 1 ? `${days} day${days === 1 ? "" : "s"}` : `${hours} hour${hours === 1 ? "" : "s"}`;
+  return ` (as of ${ago} ago; is the attn server running?)`;
+}
+
+export function contextLine(status, now = Date.now()) {
   if (!status || !Number.isInteger(status.waiting) || status.waiting === 0) return "";
   const parts = Object.entries(LABELS)
     .map(([kind, [one, many]]) => [status.waitingByKind?.[kind] ?? 0, one, many])
     .filter(([count]) => count > 0)
     .map(([count, one, many]) => `${count} ${count === 1 ? one : many}`);
-  return `attn: ${parts.join(", ")} waiting on ${status.host}. Use the attn MCP tools or /attn:triage to work through them.`;
+  return (
+    `attn: ${parts.join(", ")} waiting on ${status.host}${ageNote(status.generatedAt, now)}. ` +
+    "Use the attn MCP tools or /attn:triage to work through them."
+  );
 }
 
 if (import.meta.main) {
