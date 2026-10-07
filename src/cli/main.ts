@@ -15,6 +15,7 @@
 //   status [--json]    show config paths, server/agent/auth state; --json
 //                      prints waiting-item counts from the last snapshot
 //   watch [options]    terminal UI (src/cli/watch.ts)
+//   mcp                MCP server on stdio, proxying to the running server
 
 import { spawnSync } from "node:child_process";
 import { existsSync, mkdirSync, rmSync, writeFileSync, copyFileSync } from "node:fs";
@@ -22,7 +23,12 @@ import { homedir, userInfo } from "node:os";
 import { dirname, resolve } from "node:path";
 import { createInterface } from "node:readline/promises";
 import { fileURLToPath } from "node:url";
+import { StdioServerTransport } from "@modelcontextprotocol/server/stdio";
+import packageJson from "../../package.json" with { type: "json" };
+import { agentCredentialsPath } from "../agent-token";
 import { loadConfig } from "../config";
+import { httpAttnApi } from "../mcp/api";
+import { createAttnMcpServer } from "../mcp/server";
 import { resolveAppPaths, type AppPaths } from "../paths";
 import { loadSnapshot } from "../snapshot-cache";
 import { loadState } from "../state";
@@ -79,6 +85,8 @@ Commands:
                      --json prints waiting-item counts from the last snapshot
                      (no network calls)
   watch [options]    Terminal UI; run \`attn watch --help\` for options
+  mcp                MCP server on stdio for Claude and other agents; needs
+                     the dashboard server running
 `;
 
 function installRoot(): string | undefined {
@@ -344,6 +352,15 @@ async function statusJson(): Promise<void> {
   console.log(JSON.stringify(summarizeStatus(config.host, current, state)));
 }
 
+// --- mcp ----------------------------------------------------------------------
+
+// stdout carries the MCP protocol from here on; diagnostics go to stderr.
+async function mcp(): Promise<void> {
+  const config = loadConfig();
+  const api = httpAttnApi(agentCredentialsPath(config.stateFile));
+  await createAttnMcpServer(api, packageJson.version).connect(new StdioServerTransport());
+}
+
 // --- entry --------------------------------------------------------------------
 
 async function main(argv: string[]): Promise<void> {
@@ -368,6 +385,8 @@ async function main(argv: string[]): Promise<void> {
       return uninstallWindow();
     case "open":
       return openWindow();
+    case "mcp":
+      return mcp();
     case "status":
       return invocation.json ? statusJson() : status();
     default:
