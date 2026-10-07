@@ -447,7 +447,7 @@ async function setupClaudeDesktop(): Promise<void> {
   // any working directory, so only installs are supported.
   const attnBin = process.env.ATTN_BIN?.trim();
   if (!installRoot() || !attnBin) {
-    fail("`setup claude-desktop` needs the Homebrew install (brew install kreek/tap/attn)");
+    fail("`setup claude-desktop` needs the Homebrew install (brew install dawson-design/tap/attn)");
   }
   const path = claudeDesktopConfigPath(homedir());
   let existing: unknown;

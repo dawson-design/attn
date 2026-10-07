@@ -13,7 +13,7 @@ The app is built with SvelteKit, Tailwind CSS, and generated shadcn-svelte compo
 The quickest way to run the dashboard, no clone required:
 
 ```bash
-brew install kreek/tap/attn
+brew install dawson-design/tap/attn
 ```
 
 ```bash
@@ -84,7 +84,7 @@ It also offers a `triage` prompt that proposes an action for each item and chang
 Install the plugin from this repo's marketplace:
 
 ```text
-/plugin marketplace add kreek/attn
+/plugin marketplace add dawson-design/attn
 /plugin install attn@attn
 ```
 
@@ -321,8 +321,8 @@ seed), then `scripts/smoke-artifact.sh`, which boots the tarball from a clean
 directory and **fails the release** unless loopback serves 200, a foreign
 `Host` header gets 403, and state lands in the XDG state dir. On success it
 publishes a GitHub release and pushes the rendered formula
-(`packaging/homebrew/attn.rb`) to `kreek/homebrew-tap` using the
-`TAP_PUSH_TOKEN` repo secret (a fine-grained PAT with `contents: write` on the
+(`packaging/homebrew/attn.rb`) to `dawson-design/homebrew-tap` using the
+`HOMEBREW_TAP_TOKEN` secret (a fine-grained PAT with `contents: write` on the
 tap; without the secret the tap step is skipped with a warning).
 
 ```bash

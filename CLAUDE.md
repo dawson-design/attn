@@ -104,11 +104,11 @@ All config is environment-driven through `loadConfig()` in `src/config.ts` — `
 
 ## Packaging & distribution
 
-Run-only users install via Homebrew (`brew install kreek/tap/attn`); the clone flow is unchanged for contributors. The pieces:
+Run-only users install via Homebrew (`brew install dawson-design/tap/attn`); the clone flow is unchanged for contributors. The pieces:
 
 - **`src/cli/main.ts`** (`bun run cli`, shipped as `attn`): `serve` (imports the adapter-node entry in-process — what `brew services` supervises), `init`, `install-window`/`uninstall-window`/`open` (the Chrome window LaunchAgent, plist rendered in code by `src/cli/window-agent.ts` — the label is shared with the dev scripts so reinstalls replace rather than orphan), `status`. `scripts/{install,uninstall}-window-launcher.sh` are thin delegators to it.
 - **`scripts/package-artifact.sh`** bundles `build/index.js` and the CLI with `bun build --target=bun` into a self-contained `libexec/` tarball (no `node_modules` at runtime; `build/client/` ships alongside because the handler resolves assets file-relatively).
-- **`scripts/smoke-artifact.sh`** boots that tarball from a clean dir and asserts the release invariants: loopback 200, foreign `Host` → 403, state under XDG, nothing written cwd-relative. `.github/workflows/release.yml` (tag `v*`, macOS runner) runs the full gate, packages, smokes, publishes the GitHub release, and pushes the rendered `packaging/homebrew/attn.rb` template to `kreek/homebrew-tap` (needs the `TAP_PUSH_TOKEN` secret).
+- **`scripts/smoke-artifact.sh`** boots that tarball from a clean dir and asserts the release invariants: loopback 200, foreign `Host` → 403, state under XDG, nothing written cwd-relative. `.github/workflows/release.yml` (tag `v*`, macOS runner) runs the full gate, packages, smokes, publishes the GitHub release, and pushes the rendered `packaging/homebrew/attn.rb` template to `dawson-design/homebrew-tap` (needs the `HOMEBREW_TAP_TOKEN` secret).
 
 The security model above applies to the packaged artifact identically — the smoke's 403 check is a hard release gate, and the formula's service block bakes in no host/port (the app reads its config file at startup, so `brew services restart` picks up changes).
 

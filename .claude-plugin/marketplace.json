@@ -1,8 +1,8 @@
 {
   "name": "attn",
   "owner": {
-    "name": "Alastair Dawson",
-    "url": "https://github.com/kreek"
+    "name": "Dawson Design",
+    "url": "https://github.com/dawson-design"
   },
   "metadata": {
     "description": "attn: GitHub pull requests and issues waiting on you, in Claude Code."
@@ -14,7 +14,7 @@
       "author": {
         "name": "Alastair Dawson"
       },
-      "homepage": "https://github.com/kreek/attn",
+      "homepage": "https://github.com/dawson-design/attn",
       "license": "MIT",
       "source": "./claude-plugin"
     }

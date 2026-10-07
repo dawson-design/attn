@@ -5,8 +5,8 @@
   "author": {
     "name": "Alastair Dawson"
   },
-  "homepage": "https://github.com/kreek/attn",
-  "repository": "https://github.com/kreek/attn",
+  "homepage": "https://github.com/dawson-design/attn",
+  "repository": "https://github.com/dawson-design/attn",
   "license": "MIT",
   "keywords": ["github", "code-review", "notifications", "mcp"]
 }

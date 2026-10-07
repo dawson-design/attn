@@ -1,11 +1,11 @@
 # Homebrew formula TEMPLATE for attn, versioned here as the source of
 # truth. The release workflow (.github/workflows/release.yml) substitutes
 # __URL__ and __SHA256__ with the tagged release tarball's values and pushes
-# the result to kreek/homebrew-tap as Formula/attn.rb — do not edit the
+# the result to dawson-design/homebrew-tap as Formula/attn.rb — do not edit the
 # copy in the tap by hand.
 class Attn < Formula
   desc "Dashboard of the GitHub pull requests and issues waiting on you"
-  homepage "https://github.com/kreek/attn"
+  homepage "https://github.com/dawson-design/attn"
   url "__URL__"
   sha256 "__SHA256__"
   license "MIT"
@@ -49,7 +49,7 @@ class Attn < Formula
       Desktop notifications need the Chrome window login item — `attn init`
       offers it, or run `attn install-window` / `attn open`.
 
-      Claude Code: /plugin marketplace add kreek/attn, then /plugin install attn@attn
+      Claude Code: /plugin marketplace add dawson-design/attn, then /plugin install attn@attn
       Claude Desktop: attn setup claude-desktop
     EOS
   end
