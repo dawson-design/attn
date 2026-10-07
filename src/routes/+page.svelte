@@ -297,7 +297,7 @@
   async function copyAgentReviewPrompt(id: string): Promise<void> {
     copyingReviewPromptId = id;
     try {
-      const response = await fetch("/api/codex-review", {
+      const response = await fetch("/api/review-prompt", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ id }),

@@ -47,8 +47,18 @@ let refreshInFlight: Promise<void> | undefined;
 let pollTimer: ReturnType<typeof setInterval> | undefined;
 let restoringTerminal = false;
 
-async function main(): Promise<void> {
-  const options = parseArgs(process.argv.slice(2));
+// Entry for `attn watch`; main.ts passes the arguments after the command.
+export async function runWatch(args: string[]): Promise<void> {
+  try {
+    await startWatch(parseArgs(args));
+  } catch (error) {
+    restoreTerminal();
+    console.error(error instanceof Error ? error.message : String(error));
+    process.exit(1);
+  }
+}
+
+async function startWatch(options: CliOptions): Promise<void> {
   const loadedConfig = loadConfig();
   config = { ...loadedConfig, pollSeconds: options.pollSeconds ?? loadedConfig.pollSeconds };
   state = await loadState(config.stateFile);
@@ -526,7 +536,7 @@ function shutdown(): never {
 }
 
 function printHelp(): void {
-  console.log(`Usage: bun run watch -- [options]
+  console.log(`Usage: attn watch [options]
 
 Options:
   --agent codex|claude       Preselect an agent in the PR action menu
@@ -535,9 +545,3 @@ Options:
   --help                     Show this help
 `);
 }
-
-main().catch((error) => {
-  restoreTerminal();
-  console.error(error instanceof Error ? error.message : String(error));
-  process.exit(1);
-});

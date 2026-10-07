@@ -12,7 +12,9 @@
 //   install-window     install the login-time Chrome window LaunchAgent
 //   uninstall-window   remove it
 //   open               open the Chrome app window now (used by the LaunchAgent)
-//   status             show config paths, server/agent/auth state
+//   status [--json]    show config paths, server/agent/auth state; --json
+//                      prints waiting-item counts from the last snapshot
+//   watch [options]    terminal UI (src/cli/watch.ts)
 
 import { spawnSync } from "node:child_process";
 import { existsSync, mkdirSync, rmSync, writeFileSync, copyFileSync } from "node:fs";
@@ -22,19 +24,26 @@ import { createInterface } from "node:readline/promises";
 import { fileURLToPath } from "node:url";
 import { loadConfig } from "../config";
 import { resolveAppPaths, type AppPaths } from "../paths";
+import { loadSnapshot } from "../snapshot-cache";
+import { loadState } from "../state";
+import type { AppState, ItemKind, Snapshot } from "../types";
+import { applyCurrentLifecycle } from "./watch-core";
+import { runWatch } from "./watch";
 import { renderWindowPlist, windowAgentLabel } from "./window-agent";
 
 export interface CliInvocation {
   command?: string;
   force: boolean;
   help: boolean;
+  json: boolean;
   unknown: string[];
 }
 
 export function parseCliArgs(argv: string[]): CliInvocation {
-  const invocation: CliInvocation = { force: false, help: false, unknown: [] };
+  const invocation: CliInvocation = { force: false, help: false, json: false, unknown: [] };
   for (const arg of argv) {
     if (arg === "--force" || arg === "-f") invocation.force = true;
+    else if (arg === "--json") invocation.json = true;
     else if (arg === "--help" || arg === "-h") invocation.help = true;
     else if (arg.startsWith("-")) invocation.unknown.push(arg);
     else if (invocation.command === undefined) invocation.command = arg;
@@ -66,7 +75,10 @@ Commands:
   install-window     Open a Chrome app window to the dashboard at every login
   uninstall-window   Stop opening it
   open               Open the Chrome app window now
-  status             Show config paths, server, window agent, and gh auth state
+  status [--json]    Show config paths, server, window agent, and gh auth state.
+                     --json prints waiting-item counts from the last snapshot
+                     (no network calls)
+  watch [options]    Terminal UI; run \`attn watch --help\` for options
 `;
 
 function installRoot(): string | undefined {
@@ -288,9 +300,55 @@ async function status(): Promise<void> {
   );
 }
 
+export interface StatusSummary {
+  host: string;
+  generatedAt: string | null;
+  cacheStatus: Snapshot["cacheStatus"] | null;
+  waiting: number;
+  waitingByKind: Record<ItemKind, number>;
+}
+
+// Items not yet acknowledged, counted per kind. Pure so the SessionStart hook's
+// numbers can be tested without files.
+export function summarizeStatus(
+  host: string,
+  snapshot: Snapshot | undefined,
+  state: AppState,
+  now?: string,
+): StatusSummary {
+  const waitingByKind: Record<ItemKind, number> = {
+    pr_review_request: 0,
+    pr_comment: 0,
+    issue_assigned: 0,
+    issue_mention: 0,
+    issue_comment: 0,
+  };
+  const items = snapshot ? applyCurrentLifecycle(state, snapshot.items, now) : [];
+  const waiting = items.filter((item) => item.lifecycle !== "acknowledged");
+  for (const item of waiting) waitingByKind[item.kind] += 1;
+  return {
+    host,
+    generatedAt: snapshot?.generatedAt ?? null,
+    cacheStatus: snapshot?.cacheStatus ?? null,
+    waiting: waiting.length,
+    waitingByKind,
+  };
+}
+
+async function statusJson(): Promise<void> {
+  const config = loadConfig();
+  const snapshot = await loadSnapshot(config.snapshotFile);
+  const state = await loadState(config.stateFile);
+  // A snapshot from a previously configured host says nothing about this one.
+  const current = snapshot?.host === config.host ? snapshot : undefined;
+  console.log(JSON.stringify(summarizeStatus(config.host, current, state)));
+}
+
 // --- entry --------------------------------------------------------------------
 
 async function main(argv: string[]): Promise<void> {
+  // The terminal UI parses its own options.
+  if (argv[0] === "watch") return runWatch(argv.slice(1));
   const invocation = parseCliArgs(argv);
   if (invocation.unknown.length > 0) fail(`unknown arguments: ${invocation.unknown.join(" ")}\n\n${HELP}`);
   if (invocation.help || invocation.command === undefined) {
@@ -311,7 +369,7 @@ async function main(argv: string[]): Promise<void> {
     case "open":
       return openWindow();
     case "status":
-      return status();
+      return invocation.json ? statusJson() : status();
     default:
       fail(`unknown command: ${invocation.command}\n\n${HELP}`);
   }

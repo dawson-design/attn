@@ -1,6 +1,10 @@
 # attn
 
-Local, read-only GitHub notification dashboard for PR-review and issue triage. It works against **any GitHub host** (public GitHub or a GitHub Enterprise deployment), configured entirely through environment variables (see [Configuration](#configuration)).
+Local, read-only dashboard of the GitHub work waiting on you: pull requests that request your review, plus issues assigned to you or mentioning you, with their latest comments. It works against **any GitHub host** (public GitHub or a GitHub Enterprise deployment), configured entirely through environment variables (see [Configuration](#configuration)).
+
+attn builds its feed from `gh search` queries for `@me`. It does not read the GitHub notifications API, so it shows nothing for repos you only watch, and acknowledging an item never marks anything read on GitHub.
+
+attn runs on macOS. The server and terminal UI need only Bun and `gh`, but the login service, the notification window, and the review terminal use launchd, Chrome, and `open`.
 
 The app is built with SvelteKit, Tailwind CSS, and generated shadcn-svelte components. The GitHub integration remains read-only and uses your local `gh` CLI auth for the configured host.
 
@@ -30,6 +34,16 @@ brew services start attn
 - **State** is kept under `~/.local/state/attn/`; server logs under Homebrew's `var/log/`.
 - **Notifications**: `attn install-window` / `attn uninstall-window` manage the Chrome window login item (window logs under `~/Library/Logs/attn/`); `attn open` opens the window right now; `attn status` shows the whole setup at a glance.
 - A custom review-prompt template can be placed at `~/.config/attn/review.md` (seeded by `init`).
+
+### Moving from ghe-notification-watch
+
+attn was previously named ghe-notification-watch, with the command `ghe-watch` and `GHE_WATCH_*` settings. To keep an old config, rename each `GHE_WATCH_` prefix to `ATTN_` and move `~/.config/ghe-watch/env` to `~/.config/attn/env`. State under `~/.local/state/ghe-watch/` holds only acknowledgements and caches, so you can delete it.
+
+## Terminal UI
+
+`attn watch` shows the same feed in the terminal. It polls on its own, so it works without the server. From a PR row it can open the URL, acknowledge the item, or start `claude` or `codex` with the review prompt in your local checkout. Run `attn watch --help` for its options, or `bun run watch` from a clone.
+
+Run either the terminal UI or the server, not both. Both write the same state file without locking, so an acknowledgement made in one can be lost when the other saves.
 
 Everything below describes running from a clone — for development, or a non-Homebrew install.
 

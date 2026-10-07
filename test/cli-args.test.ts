@@ -4,7 +4,7 @@ import { parseEnvFile } from "../src/config-file";
 
 describe("parseCliArgs", () => {
   test("picks the first bare word as the command", () => {
-    expect(parseCliArgs(["init"])).toEqual({ command: "init", force: false, help: false, unknown: [] });
+    expect(parseCliArgs(["init"])).toEqual({ command: "init", force: false, help: false, json: false, unknown: [] });
   });
 
   test("recognizes --force and --help in any position", () => {
@@ -14,6 +14,10 @@ describe("parseCliArgs", () => {
 
   test("collects unknown flags and extra words instead of guessing", () => {
     expect(parseCliArgs(["init", "--verbose", "extra"]).unknown).toEqual(["--verbose", "extra"]);
+  });
+
+  test("recognizes --json", () => {
+    expect(parseCliArgs(["status", "--json"])).toMatchObject({ command: "status", json: true, unknown: [] });
   });
 
   test("no arguments means no command", () => {

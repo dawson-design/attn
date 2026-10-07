@@ -6,11 +6,11 @@
   "description": "Local read-only dashboard of GitHub PRs and issues waiting on you, for any GitHub host.",
   "scripts": {
     "dev": "vite --host 127.0.0.1 --port ${ATTN_PORT:-8765}",
-    "start": "vite --host 127.0.0.1 --port ${ATTN_PORT:-8765}",
+    "start": "bun run serve",
     "build": "vite build",
     "preview": "vite preview --host 127.0.0.1 --port ${ATTN_PORT:-8765}",
     "serve": "HOST=127.0.0.1 PORT=${ATTN_PORT:-8765} bun build/index.js",
-    "watch": "bun src/cli/watch.ts",
+    "watch": "bun src/cli/main.ts watch",
     "cli": "bun src/cli/main.ts",
     "check": "svelte-check --tsconfig ./tsconfig.json",
     "test": "bun test",
