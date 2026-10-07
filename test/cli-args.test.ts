@@ -25,13 +25,13 @@ describe("buildConfigFileContents", () => {
   test("round-trips through parseEnvFile exactly as loadConfig will read it", () => {
     const parsed = parseEnvFile(buildConfigFileContents("ghe.example.com", "/Users/someone/work"));
     expect(parsed).toEqual({
-      GHE_WATCH_HOST: "ghe.example.com",
-      GHE_WATCH_CHECKOUT_ROOTS: "/Users/someone/work",
+      ATTN_HOST: "ghe.example.com",
+      ATTN_CHECKOUT_ROOTS: "/Users/someone/work",
     });
   });
 
   test("omits checkout roots when the user skipped them", () => {
     const parsed = parseEnvFile(buildConfigFileContents("github.com", ""));
-    expect(parsed).toEqual({ GHE_WATCH_HOST: "github.com" });
+    expect(parsed).toEqual({ ATTN_HOST: "github.com" });
   });
 });

@@ -33,7 +33,7 @@ export function emptyGithubCache(host?: string): GithubCache {
 
 /**
  * Loads the cache for `host`, discarding one written against a different host.
- * Without that check, changing GHE_WATCH_HOST serves the previous host's
+ * Without that check, changing ATTN_HOST serves the previous host's
  * results as fresh data for the new one — wrong repos and wrong links, with no
  * error to show for it. A cache file predating this field has an unknown host
  * and is discarded once, costing a single refresh.

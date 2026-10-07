@@ -5,9 +5,9 @@ import { loadConfig } from "../src/config";
 import { DEFAULT_REVIEW_PROMPT } from "../src/review-prompt";
 
 // loadConfig reads process.env, which Bun pre-populates from the developer's
-// local .env — so these tests save and clear every GHE_WATCH_*/XDG_* variable
+// local .env — so these tests save and clear every ATTN_*/XDG_* variable
 // to run against a known-empty environment, and restore them afterwards.
-const ENV_PREFIXES = ["GHE_WATCH_", "XDG_"];
+const ENV_PREFIXES = ["ATTN_", "XDG_"];
 let savedEnv: Record<string, string> = {};
 
 beforeEach(() => {
@@ -28,27 +28,27 @@ afterEach(() => {
 });
 
 // Point installed mode's XDG dirs at a temp dir, optionally with a config file
-// at <config>/ghe-watch/env, so loadConfig() reads it like a real install.
+// at <config>/attn/env, so loadConfig() reads it like a real install.
 async function installedModeDir(configFileContents?: string): Promise<string> {
   const dir = await mkdtemp(`${tmpdir()}/ghe-installed-`);
-  process.env.GHE_WATCH_HOME = `${dir}/libexec`;
+  process.env.ATTN_HOME = `${dir}/libexec`;
   process.env.XDG_CONFIG_HOME = `${dir}/config`;
   process.env.XDG_STATE_HOME = `${dir}/state`;
   if (configFileContents !== undefined) {
-    await mkdir(`${dir}/config/ghe-watch`, { recursive: true });
-    await writeFile(`${dir}/config/ghe-watch/env`, configFileContents);
+    await mkdir(`${dir}/config/attn`, { recursive: true });
+    await writeFile(`${dir}/config/attn/env`, configFileContents);
   }
   return dir;
 }
 
 describe("loadConfig", () => {
   test("maps the terminal app from the environment", () => {
-    process.env.GHE_WATCH_TERMINAL_APP = "Ghostty";
+    process.env.ATTN_TERMINAL_APP = "Ghostty";
     expect(loadConfig().terminalApp).toBe("Ghostty");
   });
 
   test("leaves the terminal app unset when the env var is empty", () => {
-    process.env.GHE_WATCH_TERMINAL_APP = "  ";
+    process.env.ATTN_TERMINAL_APP = "  ";
     expect(loadConfig().terminalApp).toBeUndefined();
   });
 
@@ -57,7 +57,7 @@ describe("loadConfig", () => {
     const file = `${dir}/prompt.md`;
     try {
       await writeFile(file, "Custom review for {{repo}}");
-      process.env.GHE_WATCH_REVIEW_PROMPT_FILE = file;
+      process.env.ATTN_REVIEW_PROMPT_FILE = file;
       expect(loadConfig().reviewPromptTemplate).toBe("Custom review for {{repo}}");
     } finally {
       await rm(dir, { recursive: true, force: true });
@@ -65,13 +65,13 @@ describe("loadConfig", () => {
   });
 
   test("falls back to the default template when the file is missing", () => {
-    process.env.GHE_WATCH_REVIEW_PROMPT_FILE = "/no/such/prompt.md";
+    process.env.ATTN_REVIEW_PROMPT_FILE = "/no/such/prompt.md";
     expect(loadConfig().reviewPromptTemplate).toBe(DEFAULT_REVIEW_PROMPT);
   });
 
   test("maps host and exact repo allowlist from the environment", () => {
-    process.env.GHE_WATCH_HOST = "ghe.example.com";
-    process.env.GHE_WATCH_REPOS = "acme/api, acme/web ,";
+    process.env.ATTN_HOST = "ghe.example.com";
+    process.env.ATTN_REPOS = "acme/api, acme/web ,";
     const config = loadConfig();
     expect(config.host).toBe("ghe.example.com");
     expect(config.repos).toEqual(["acme/api", "acme/web"]);
@@ -79,14 +79,14 @@ describe("loadConfig", () => {
 
   test("dev mode keeps state under the cwd and scans the workspace for checkouts", () => {
     const config = loadConfig();
-    expect(config.stateFile).toBe(`${process.cwd()}/.local-state/ghe-notification-watch/state.json`);
+    expect(config.stateFile).toBe(`${process.cwd()}/.local-state/attn/state.json`);
     expect(config.checkoutRoots).toEqual([process.cwd()]);
   });
 
   test("parses the Host-header allowlist from the environment", () => {
-    process.env.GHE_WATCH_ALLOWED_HOSTS = "proxy.internal, dashboard.local ,";
+    process.env.ATTN_ALLOWED_HOSTS = "proxy.internal, dashboard.local ,";
     expect(loadConfig().allowedHosts).toEqual(["proxy.internal", "dashboard.local"]);
-    delete process.env.GHE_WATCH_ALLOWED_HOSTS;
+    delete process.env.ATTN_ALLOWED_HOSTS;
     expect(loadConfig().allowedHosts).toEqual([]);
   });
 });
@@ -99,21 +99,21 @@ describe("loadConfig installed mode", () => {
   });
 
   test("reads values from the config file and defaults state to XDG dirs", async () => {
-    dir = await installedModeDir("GHE_WATCH_HOST=ghe.example.com\nGHE_WATCH_ALLOWED_HOSTS=proxy.internal\n");
+    dir = await installedModeDir("ATTN_HOST=ghe.example.com\nATTN_ALLOWED_HOSTS=proxy.internal\n");
     const config = loadConfig();
     expect(config.host).toBe("ghe.example.com");
     expect(config.allowedHosts).toEqual(["proxy.internal"]);
-    expect(config.stateFile).toBe(`${dir}/state/ghe-watch/state.json`);
-    expect(config.snapshotFile).toBe(`${dir}/state/ghe-watch/snapshot.json`);
-    expect(config.cacheFile).toBe(`${dir}/state/ghe-watch/github-cache.json`);
+    expect(config.stateFile).toBe(`${dir}/state/attn/state.json`);
+    expect(config.snapshotFile).toBe(`${dir}/state/attn/snapshot.json`);
+    expect(config.cacheFile).toBe(`${dir}/state/attn/github-cache.json`);
   });
 
   test("process env beats the config file, which beats the default", async () => {
-    dir = await installedModeDir("GHE_WATCH_HOST=from-file.example.com\n");
-    process.env.GHE_WATCH_HOST = "from-env.example.com";
+    dir = await installedModeDir("ATTN_HOST=from-file.example.com\n");
+    process.env.ATTN_HOST = "from-env.example.com";
     expect(loadConfig().host).toBe("from-env.example.com");
 
-    delete process.env.GHE_WATCH_HOST;
+    delete process.env.ATTN_HOST;
     expect(loadConfig().host).toBe("from-file.example.com");
   });
 
@@ -131,7 +131,7 @@ describe("loadConfig installed mode", () => {
 
   test("loads a user review prompt from the config dir when present", async () => {
     dir = await installedModeDir("");
-    await writeFile(`${dir}/config/ghe-watch/review.md`, "Installed review for {{repo}}");
+    await writeFile(`${dir}/config/attn/review.md`, "Installed review for {{repo}}");
     expect(loadConfig().reviewPromptTemplate).toBe("Installed review for {{repo}}");
   });
 });

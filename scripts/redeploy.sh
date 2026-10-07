@@ -12,7 +12,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$SCRIPT_DIR/lib.sh"
 
 APP_DIR="$(gw_app_dir)"
-LABEL="$(gw_label ghe-notification-watch)"
+LABEL="$(gw_label attn)"
 DOMAIN="$(gw_domain)"
 PORT="$(gw_port)"
 

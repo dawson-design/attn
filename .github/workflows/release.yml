@@ -54,17 +54,17 @@ jobs:
       # Boots the tarball from a clean dir (no node_modules) and fails the
       # release if loopback 200 / foreign-Host 403 / XDG state placement break.
       - name: Smoke test artifact
-        run: scripts/smoke-artifact.sh "dist/ghe-watch-$GITHUB_REF_NAME.tar.gz"
+        run: scripts/smoke-artifact.sh "dist/attn-$GITHUB_REF_NAME.tar.gz"
 
       - name: Create GitHub release
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           gh release create "$GITHUB_REF_NAME" dist/*.tar.gz dist/*.sha256 \
-            --title "ghe-watch $GITHUB_REF_NAME" \
+            --title "attn $GITHUB_REF_NAME" \
             --generate-notes
 
-      # Renders packaging/homebrew/ghe-watch.rb (the template of record) with
+      # Renders packaging/homebrew/attn.rb (the template of record) with
       # the released tarball's URL + sha256 and pushes it to the personal tap.
       # TAP_PUSH_TOKEN is a repo secret: a fine-grained PAT with contents:write
       # on kreek/homebrew-tap. Skipped with a notice when the secret is absent.
@@ -76,7 +76,7 @@ jobs:
             echo "::warning::TAP_PUSH_TOKEN not set; skipping tap update"
             exit 0
           fi
-          url="https://github.com/kreek/ghe-notification-watch/releases/download/$GITHUB_REF_NAME/ghe-watch-$GITHUB_REF_NAME.tar.gz"
+          url="https://github.com/kreek/attn/releases/download/$GITHUB_REF_NAME/attn-$GITHUB_REF_NAME.tar.gz"
           sha="$(cut -d' ' -f1 dist/*.sha256)"
           # Pass the token as an http.extraHeader instead of embedding it in the
           # remote URL, so it is never written into tap/.git/config on the runner.
@@ -84,10 +84,10 @@ jobs:
           git -c "http.extraHeader=$auth" clone --depth 1 "https://github.com/kreek/homebrew-tap.git" tap
           mkdir -p tap/Formula
           sed -e "s|__URL__|$url|" -e "s|__SHA256__|$sha|" \
-            packaging/homebrew/ghe-watch.rb > tap/Formula/ghe-watch.rb
+            packaging/homebrew/attn.rb > tap/Formula/attn.rb
           cd tap
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add Formula/ghe-watch.rb
-          git commit -m "ghe-watch $GITHUB_REF_NAME"
+          git add Formula/attn.rb
+          git commit -m "attn $GITHUB_REF_NAME"
           git -c "http.extraHeader=$auth" push

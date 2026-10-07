@@ -1,12 +1,12 @@
 // Where the app keeps its files, resolved once per process by loadConfig().
 //
-// Two modes, selected by GHE_WATCH_HOME (set by the packaged `ghe-watch`
+// Two modes, selected by ATTN_HOME (set by the packaged `attn`
 // wrapper, never by the dev flow):
 //
-// - dev (GHE_WATCH_HOME unset): everything lives in the checkout, relative to
+// - dev (ATTN_HOME unset): everything lives in the checkout, relative to
 //   cwd — exactly the historical behavior. Config comes from `${cwd}/.env` via
 //   Bun's auto-load, so no config file path is returned.
-// - installed (GHE_WATCH_HOME set): the process runs from a read-only package
+// - installed (ATTN_HOME set): the process runs from a read-only package
 //   (e.g. Homebrew libexec) with an arbitrary cwd, so paths move to
 //   XDG-conventional user dirs and config is an env-format file the app reads
 //   itself at startup.
@@ -29,8 +29,8 @@ export interface AppPaths {
 }
 
 export function resolveAppPaths(env: Record<string, string | undefined>, homedir: string, cwd: string): AppPaths {
-  if (!env.GHE_WATCH_HOME?.trim()) {
-    const stateDir = `${cwd}/.local-state/ghe-notification-watch`;
+  if (!env.ATTN_HOME?.trim()) {
+    const stateDir = `${cwd}/.local-state/attn`;
     return {
       mode: "dev",
       stateFile: `${stateDir}/state.json`,
@@ -41,8 +41,8 @@ export function resolveAppPaths(env: Record<string, string | undefined>, homedir
     };
   }
 
-  const configDir = `${env.XDG_CONFIG_HOME?.trim() || `${homedir}/.config`}/ghe-watch`;
-  const stateDir = `${env.XDG_STATE_HOME?.trim() || `${homedir}/.local/state`}/ghe-watch`;
+  const configDir = `${env.XDG_CONFIG_HOME?.trim() || `${homedir}/.config`}/attn`;
+  const stateDir = `${env.XDG_STATE_HOME?.trim() || `${homedir}/.local/state`}/attn`;
   return {
     mode: "installed",
     configDir,

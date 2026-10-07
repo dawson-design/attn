@@ -18,7 +18,7 @@ export function hostnameOf(hostHeader: string): string {
   return colon === -1 ? hostHeader : hostHeader.slice(0, colon);
 }
 
-// Parse the GHE_WATCH_ALLOWED_HOSTS escape hatch (comma-separated hostnames for
+// Parse the ATTN_ALLOWED_HOSTS escape hatch (comma-separated hostnames for
 // reverse-proxy / container setups that front the dashboard with another name).
 export function parseAllowedHostsEnv(raw: string | undefined): string[] {
   return (raw || "")

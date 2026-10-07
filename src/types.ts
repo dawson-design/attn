@@ -24,7 +24,7 @@ export interface Config {
   // "Ghostty"). Unset uses the system default handler for .command files.
   terminalApp?: string;
   // Extra Host-header names accepted by the DNS-rebinding guard, beyond
-  // loopback (GHE_WATCH_ALLOWED_HOSTS). Optional for test ergonomics —
+  // loopback (ATTN_ALLOWED_HOSTS). Optional for test ergonomics —
   // loadConfig always populates it, and hooks.server.ts treats unset as [].
   allowedHosts?: string[];
   limit: number;

@@ -6,6 +6,6 @@ export default defineConfig({
   plugins: [tailwindcss(), sveltekit()],
   server: {
     host: "127.0.0.1",
-    port: Number(process.env.GHE_WATCH_PORT || 8765),
+    port: Number(process.env.ATTN_PORT || 8765),
   },
 });

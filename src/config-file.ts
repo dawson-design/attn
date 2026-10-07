@@ -1,6 +1,6 @@
 import { readFileSync } from "node:fs";
 
-// Parser for the installed-mode config file (~/.config/ghe-watch/env). Same
+// Parser for the installed-mode config file (~/.config/attn/env). Same
 // `.env` dialect Bun auto-loads in dev mode, and deliberately the same
 // semantics as gw_env_file_value() in scripts/lib.sh so shell installers and
 // the runtime never disagree about what a line means: optional `export `,

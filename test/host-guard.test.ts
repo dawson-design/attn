@@ -25,7 +25,7 @@ describe("isAllowedHost", () => {
     expect(isAllowedHost("")).toBe(false);
   });
 
-  test("honors the GHE_WATCH_ALLOWED_HOSTS escape hatch", () => {
+  test("honors the ATTN_ALLOWED_HOSTS escape hatch", () => {
     const extra = parseAllowedHostsEnv("watch.example, proxy.internal ");
     expect(extra).toEqual(["watch.example", "proxy.internal"]);
     expect(isAllowedHost("watch.example:8765", extra)).toBe(true);

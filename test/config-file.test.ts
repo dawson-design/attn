@@ -5,26 +5,26 @@ import { loadConfigFileEnv, parseEnvFile } from "../src/config-file";
 
 describe("parseEnvFile", () => {
   test("parses simple assignments and trims whitespace", () => {
-    expect(parseEnvFile("GHE_WATCH_HOST=ghe.example.com\n  GHE_WATCH_PORT = 9000 \n")).toEqual({
-      GHE_WATCH_HOST: "ghe.example.com",
-      GHE_WATCH_PORT: "9000",
+    expect(parseEnvFile("ATTN_HOST=ghe.example.com\n  ATTN_PORT = 9000 \n")).toEqual({
+      ATTN_HOST: "ghe.example.com",
+      ATTN_PORT: "9000",
     });
   });
 
   test("ignores comments and blank lines", () => {
-    const contents = "# a comment\n\nGHE_WATCH_HOST=ghe.example.com\n  # indented comment\n";
-    expect(parseEnvFile(contents)).toEqual({ GHE_WATCH_HOST: "ghe.example.com" });
+    const contents = "# a comment\n\nATTN_HOST=ghe.example.com\n  # indented comment\n";
+    expect(parseEnvFile(contents)).toEqual({ ATTN_HOST: "ghe.example.com" });
   });
 
   test("accepts an export prefix", () => {
-    expect(parseEnvFile("export GHE_WATCH_HOST=ghe.example.com")).toEqual({
-      GHE_WATCH_HOST: "ghe.example.com",
+    expect(parseEnvFile("export ATTN_HOST=ghe.example.com")).toEqual({
+      ATTN_HOST: "ghe.example.com",
     });
   });
 
   test("last assignment wins, matching gw_env_file_value in scripts/lib.sh", () => {
-    expect(parseEnvFile("GHE_WATCH_HOST=first\nGHE_WATCH_HOST=second")).toEqual({
-      GHE_WATCH_HOST: "second",
+    expect(parseEnvFile("ATTN_HOST=first\nATTN_HOST=second")).toEqual({
+      ATTN_HOST: "second",
     });
   });
 
@@ -39,8 +39,8 @@ describe("parseEnvFile", () => {
   });
 
   test("keeps everything after the first equals sign", () => {
-    expect(parseEnvFile('GHE_WATCH_REPO_PATH_MAP={"acme/api": "/x=y"}')).toEqual({
-      GHE_WATCH_REPO_PATH_MAP: '{"acme/api": "/x=y"}',
+    expect(parseEnvFile('ATTN_REPO_PATH_MAP={"acme/api": "/x=y"}')).toEqual({
+      ATTN_REPO_PATH_MAP: '{"acme/api": "/x=y"}',
     });
   });
 
@@ -59,8 +59,8 @@ describe("loadConfigFileEnv", () => {
   test("reads an existing file", async () => {
     dir = await mkdtemp(`${tmpdir()}/ghe-config-file-`);
     const file = `${dir}/env`;
-    await writeFile(file, "GHE_WATCH_HOST=ghe.example.com\n");
-    expect(loadConfigFileEnv(file)).toEqual({ GHE_WATCH_HOST: "ghe.example.com" });
+    await writeFile(file, "ATTN_HOST=ghe.example.com\n");
+    expect(loadConfigFileEnv(file)).toEqual({ ATTN_HOST: "ghe.example.com" });
   });
 
   test("returns empty for a missing file or no path", () => {

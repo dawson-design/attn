@@ -13,7 +13,7 @@ gw_app_dir() {
 
 # LaunchAgent label. Namespaced by the current user so it is unique per account
 # yet stable across runs (idempotent install/uninstall). $1 is the suffix, e.g.
-# "ghe-notification-watch" or "ghe-notification-watch-window".
+# "attn" or "attn-window".
 gw_label() {
     echo "com.$(id -un).$1"
 }
@@ -64,12 +64,12 @@ gw_env_file_value() {
 }
 
 gw_host() {
-    local value="${GHE_WATCH_HOST:-$(gw_env_file_value GHE_WATCH_HOST)}"
+    local value="${ATTN_HOST:-$(gw_env_file_value ATTN_HOST)}"
     echo "${value:-github.com}"
 }
 
 gw_port() {
-    local value="${GHE_WATCH_PORT:-$(gw_env_file_value GHE_WATCH_PORT)}"
+    local value="${ATTN_PORT:-$(gw_env_file_value ATTN_PORT)}"
     echo "${value:-8765}"
 }
 

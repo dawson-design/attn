@@ -36,7 +36,7 @@
         <key>PATH</key>
         <string>__PATH__</string>
         <!-- Target GitHub (Enterprise) host queried via gh. -->
-        <key>GHE_WATCH_HOST</key>
+        <key>ATTN_HOST</key>
         <string>__HOST__</string>
     </dict>
 

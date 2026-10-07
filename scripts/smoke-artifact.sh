@@ -31,16 +31,16 @@ trap cleanup EXIT
 tar -xzf "$TARBALL" -C "$WORK"
 mkdir -p "$WORK/home" "$WORK/config" "$WORK/state"
 
-# env -i so nothing from the invoking shell (a real .env, GHE_WATCH_* vars)
+# env -i so nothing from the invoking shell (a real .env, ATTN_* vars)
 # leaks in; only the artifact and the XDG dirs define behavior. cwd is the
 # work dir so a cwd-relative path regression shows up as a stray .local-state
 # here instead of silently landing in a checkout.
 cd "$WORK"
 env -i HOME="$WORK/home" PATH="$PATH" \
-    GHE_WATCH_HOME="$WORK/libexec" \
+    ATTN_HOME="$WORK/libexec" \
     XDG_CONFIG_HOME="$WORK/config" \
     XDG_STATE_HOME="$WORK/state" \
-    GHE_WATCH_PORT="$PORT" \
+    ATTN_PORT="$PORT" \
     bun "$WORK/libexec/cli.js" serve >"$WORK/serve.log" 2>&1 &
 SERVER_PID=$!
 
@@ -82,7 +82,7 @@ check "foreign Host rejected" 403 \
 curl -s -o /dev/null -m 30 "$BASE_URL/api/items" || true
 state_written=""
 for _ in $(seq 1 20); do
-    if [[ -f "$WORK/state/ghe-watch/snapshot.json" || -f "$WORK/state/ghe-watch/state.json" ]]; then
+    if [[ -f "$WORK/state/attn/snapshot.json" || -f "$WORK/state/attn/state.json" ]]; then
         state_written=1
         break
     fi

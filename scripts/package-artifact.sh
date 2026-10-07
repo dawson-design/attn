@@ -2,7 +2,7 @@
 #
 # Package the run-only distribution artifact: a self-contained libexec/ tree
 # (bundled server + bundled CLI + review-prompt seed) tarred into
-# dist/ghe-watch-v<version>.tar.gz with a .sha256 alongside, ready to attach to
+# dist/attn-v<version>.tar.gz with a .sha256 alongside, ready to attach to
 # a GitHub release for the Homebrew formula to consume.
 #
 # Requires a fresh `bun run build` first; the server bundle is produced from
@@ -38,7 +38,7 @@ bun build --target=bun "$APP_DIR/src/cli/main.ts" --outfile "$STAGE/libexec/cli.
 cp "$APP_DIR/prompts/review.md" "$STAGE/libexec/share/review.md"
 
 mkdir -p "$APP_DIR/dist"
-TARBALL_NAME="ghe-watch-v${VERSION}.tar.gz"
+TARBALL_NAME="attn-v${VERSION}.tar.gz"
 echo "==> Creating dist/$TARBALL_NAME"
 tar -czf "$APP_DIR/dist/$TARBALL_NAME" -C "$STAGE" libexec
 (cd "$APP_DIR/dist" && shasum -a 256 "$TARBALL_NAME" | tee "$TARBALL_NAME.sha256")

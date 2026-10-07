@@ -34,7 +34,7 @@ export interface ServiceDeps {
   startPolling?: boolean;
 }
 
-// GHE_WATCH_TERMINAL_APP picks the terminal (Terminal / iTerm / Ghostty /
+// ATTN_TERMINAL_APP picks the terminal (Terminal / iTerm / Ghostty /
 // ...). It is passed as a literal arg to `open -a`, never shell-interpreted.
 // Unset falls back to the system default handler for .command files.
 function openWithSystem(scriptPath: string, terminalApp?: string): Promise<void> {
@@ -63,7 +63,7 @@ interface DashboardService {
 }
 
 declare global {
-  var gheNotificationWatchService: Promise<DashboardService> | undefined;
+  var attnService: Promise<DashboardService> | undefined;
 }
 
 function sse(event: string, data: unknown): string {
@@ -244,8 +244,8 @@ export async function createService(deps: ServiceDeps = {}): Promise<DashboardSe
 }
 
 export function getDashboardService(): Promise<DashboardService> {
-  globalThis.gheNotificationWatchService ??= createService();
-  globalThis.gheNotificationWatchService = globalThis.gheNotificationWatchService.then((service) => {
+  globalThis.attnService ??= createService();
+  globalThis.attnService = globalThis.attnService.then((service) => {
     if (
       service.serviceVersion === SERVICE_VERSION &&
       typeof service.buildAgentReviewPrompt === "function" &&
@@ -256,5 +256,5 @@ export function getDashboardService(): Promise<DashboardService> {
     service.dispose?.();
     return createService();
   });
-  return globalThis.gheNotificationWatchService;
+  return globalThis.attnService;
 }

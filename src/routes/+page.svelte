@@ -104,10 +104,10 @@
   // Persist view preferences. Gated on prefsLoaded so the initial default does
   // not overwrite a saved value before onMount has loaded it.
   $effect(() => {
-    if (prefsLoaded) localStorage.setItem("ghe-watch:pageSize", pageSizeChoice);
+    if (prefsLoaded) localStorage.setItem("attn:pageSize", pageSizeChoice);
   });
   $effect(() => {
-    if (prefsLoaded) localStorage.setItem("ghe-watch:showAcknowledged", String(showAcknowledged));
+    if (prefsLoaded) localStorage.setItem("attn:showAcknowledged", String(showAcknowledged));
   });
 
   onMount(() => {
@@ -115,9 +115,9 @@
     notificationPermission = "Notification" in window ? Notification.permission : "denied";
     // Restore view preferences (the always-on window reloads, so these should
     // persist). Loading here, post-hydration, avoids an SSR mismatch.
-    const savedSize = localStorage.getItem("ghe-watch:pageSize");
+    const savedSize = localStorage.getItem("attn:pageSize");
     if (savedSize && ["10", "25", "50", "100"].includes(savedSize)) pageSizeChoice = savedSize;
-    const savedAck = localStorage.getItem("ghe-watch:showAcknowledged");
+    const savedAck = localStorage.getItem("attn:showAcknowledged");
     if (savedAck != null) showAcknowledged = savedAck === "true";
     prefsLoaded = true;
     const source = new EventSource("/events");
@@ -344,7 +344,7 @@
     if (!("Notification" in window)) return;
     notificationPermission = await Notification.requestPermission();
     if (notificationPermission === "granted") {
-      new Notification("GHE notifications enabled", {
+      new Notification("attn notifications enabled", {
         body: "New active items will appear here while the dashboard is open.",
       });
     }
@@ -393,7 +393,7 @@
 </script>
 
 <svelte:head>
-  <title>GHE Notification Watch</title>
+  <title>attn</title>
 </svelte:head>
 
 <Tooltip.Provider>
@@ -401,7 +401,7 @@
     class="sticky top-0 z-20 flex items-center justify-between gap-4 border-b border-border bg-card/95 px-4 py-2 shadow-sm backdrop-blur"
   >
     <div>
-      <h1 class="m-0 text-base font-semibold">GHE Notification Watch</h1>
+      <h1 class="m-0 text-base font-semibold">attn</h1>
       <p class="mt-0.5 text-xs text-muted-foreground">
         {connection} · {filteredItems.length} visible / {items.length} tracked · {lastUpdated} · {cacheLabel}
       </p>

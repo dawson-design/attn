@@ -98,7 +98,7 @@ function parseArgs(args: string[]): CliOptions {
 
 async function refresh(options: CliOptions, refreshOptions: { force?: boolean } = {}): Promise<void> {
   if (refreshInFlight) return refreshInFlight;
-  status = "Refreshing GHE notifications.";
+  status = "Refreshing.";
   render(options);
   refreshInFlight = (async () => {
     try {
@@ -331,7 +331,7 @@ function renderList(options: CliOptions): void {
   const maxItems = Math.max(5, rows - 7);
   const start = Math.max(0, Math.min(selectedIndex - Math.floor(maxItems / 2), Math.max(0, items.length - maxItems)));
 
-  writeLine(color("bold", "GHE Notification Watch"));
+  writeLine(color("bold", "attn"));
   writeLine(
     `${color("dim", snapshot.host)} | ${items.length} visible / ${snapshot.items.length} tracked | ${cacheStatusLabel(snapshot.cacheStatus)} | ${status}`,
   );
@@ -530,7 +530,7 @@ function printHelp(): void {
 
 Options:
   --agent codex|claude       Preselect an agent in the PR action menu
-  --poll-seconds <seconds>   Override GHE_WATCH_POLL_SECONDS
+  --poll-seconds <seconds>   Override ATTN_POLL_SECONDS
   --include-acknowledged     Show acknowledged items
   --help                     Show this help
 `);

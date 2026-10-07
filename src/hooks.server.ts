@@ -5,7 +5,7 @@ import { isAllowedHost, isAllowedRequestOrigin } from "./host-guard";
 // Reject requests whose Host header is not a loopback (or explicitly allowed)
 // host. This is the DNS-rebinding guard adapter-node does not provide; see
 // host-guard.ts for why loopback binding alone is insufficient. The allowlist
-// comes from config (GHE_WATCH_ALLOWED_HOSTS), resolved lazily on the first
+// comes from config (ATTN_ALLOWED_HOSTS), resolved lazily on the first
 // request so the installed-mode config file is honored, and memoized because
 // it must not change while the server runs.
 let extraHosts: string[] | undefined;

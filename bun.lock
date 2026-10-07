@@ -3,7 +3,7 @@
   "configVersion": 1,
   "workspaces": {
     "": {
-      "name": "ghe-notification-watch",
+      "name": "attn",
       "dependencies": {
         "@sveltejs/adapter-node": "^5.2.12",
         "@sveltejs/kit": "^2.70.2",

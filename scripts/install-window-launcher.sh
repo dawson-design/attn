@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 #
 # Thin delegator: the window-agent logic lives in src/cli/main.ts
-# (install-window) so the dev checkout and the packaged `ghe-watch` CLI share
+# (install-window) so the dev checkout and the packaged `attn` CLI share
 # one implementation. Kept for muscle memory; run scripts/install-service.sh
 # first to have a backend to point the window at.
 #

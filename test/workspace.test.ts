@@ -36,7 +36,7 @@ function git(path: string, args: string[]): void {
 }
 
 describe("workspace discovery", () => {
-  test("maps VA GHE repos from configured checkout roots", async () => {
+  test("maps repos from configured checkout roots", async () => {
     const root = await mkdtemp(`${tmpdir()}/ghe-workspace-`);
     const repoPath = `${root}/docs`;
     try {

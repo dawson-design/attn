@@ -1,7 +1,7 @@
-// `ghe-watch` — the run-only front door to the dashboard.
+// `attn` — the run-only front door to the dashboard.
 //
-// Installed (Homebrew) deployments run this as `bin/ghe-watch`, a wrapper that
-// sets GHE_WATCH_HOME and execs `bun cli.js <command>`; dev checkouts run the
+// Installed (Homebrew) deployments run this as `bin/attn`, a wrapper that
+// sets ATTN_HOME and execs `bun cli.js <command>`; dev checkouts run the
 // same commands via `bun run cli <command>`. Mode selection and all path
 // differences live in src/paths.ts — this file only picks entry points.
 //
@@ -48,16 +48,16 @@ export function parseCliArgs(argv: string[]): CliInvocation {
 // loadConfig reads back.
 export function buildConfigFileContents(host: string, checkoutRoots: string): string {
   const lines = [
-    "# ghe-notification-watch configuration (KEY=value).",
+    "# attn configuration (KEY=value).",
     "# No secrets belong here — GitHub auth comes from `gh auth login`.",
-    "# All available GHE_WATCH_* settings are documented in the project README.",
-    `GHE_WATCH_HOST=${host}`,
+    "# All available ATTN_* settings are documented in the project README.",
+    `ATTN_HOST=${host}`,
   ];
-  if (checkoutRoots) lines.push(`GHE_WATCH_CHECKOUT_ROOTS=${checkoutRoots}`);
+  if (checkoutRoots) lines.push(`ATTN_CHECKOUT_ROOTS=${checkoutRoots}`);
   return `${lines.join("\n")}\n`;
 }
 
-const HELP = `Usage: ghe-watch <command>
+const HELP = `Usage: attn <command>
 
 Commands:
   serve              Run the dashboard server (foreground; brew services uses this)
@@ -70,7 +70,7 @@ Commands:
 `;
 
 function installRoot(): string | undefined {
-  const home = process.env.GHE_WATCH_HOME?.trim();
+  const home = process.env.ATTN_HOME?.trim();
   return home || undefined;
 }
 
@@ -137,11 +137,11 @@ function installWindow(): void {
 
   const root = installRoot();
   // Installed mode launches the packaged wrapper (which restores
-  // GHE_WATCH_HOME); dev mode runs this file with the current bun.
+  // ATTN_HOME); dev mode runs this file with the current bun.
   const programArgs = root
-    ? [process.env.GHE_WATCH_BIN?.trim() || resolve(root, "..", "bin", "ghe-watch"), "open"]
+    ? [process.env.ATTN_BIN?.trim() || resolve(root, "..", "bin", "attn"), "open"]
     : [process.execPath, `${repoRoot()}/src/cli/main.ts`, "open"];
-  const logDir = root ? `${homedir()}/Library/Logs/ghe-watch` : `${repoRoot()}/.local-state/logs`;
+  const logDir = root ? `${homedir()}/Library/Logs/attn` : `${repoRoot()}/.local-state/logs`;
   mkdirSync(logDir, { recursive: true });
 
   const plist = renderWindowPlist({
@@ -231,7 +231,7 @@ async function init(force: boolean): Promise<void> {
 
   console.log("==> Setup complete.");
   if (paths.mode === "installed") {
-    console.log("    Start the dashboard with: brew services start ghe-watch");
+    console.log("    Start the dashboard with: brew services start attn");
   } else {
     console.log("    Start the dashboard with: bun run dev (or scripts/install-service.sh for the login service)");
   }

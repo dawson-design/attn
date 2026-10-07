@@ -6,8 +6,8 @@
 # Re-running is safe (idempotent): it boots out any existing instance first.
 #
 # Deployment config comes from the environment (or a .env in the repo root):
-#   GHE_WATCH_HOST  target GitHub (Enterprise) host   (default github.com)
-#   GHE_WATCH_PORT  local dashboard port              (default 8765)
+#   ATTN_HOST  target GitHub (Enterprise) host   (default github.com)
+#   ATTN_PORT  local dashboard port              (default 8765)
 #
 set -euo pipefail
 
@@ -17,7 +17,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$SCRIPT_DIR/lib.sh"
 
 APP_DIR="$(gw_app_dir)"
-LABEL="$(gw_label ghe-notification-watch)"
+LABEL="$(gw_label attn)"
 DOMAIN="$(gw_domain)"
 PLIST_SRC="$SCRIPT_DIR/service.plist.template"
 PLIST_DST="$HOME/Library/LaunchAgents/$LABEL.plist"

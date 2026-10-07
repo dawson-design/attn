@@ -10,7 +10,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=lib.sh
 source "$SCRIPT_DIR/lib.sh"
 
-LABEL="$(gw_label ghe-notification-watch)"
+LABEL="$(gw_label attn)"
 PLIST_DST="$HOME/Library/LaunchAgents/$LABEL.plist"
 DOMAIN="$(gw_domain)"
 

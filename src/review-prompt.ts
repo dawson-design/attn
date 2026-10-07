@@ -2,7 +2,7 @@ import { readFileSync } from "node:fs";
 
 // The local code-review prompt is a user-customizable template. It ships as
 // prompts/review.md and is loaded once at startup (config.ts). Users edit that
-// file (or point GHE_WATCH_REVIEW_PROMPT_FILE elsewhere) to change the review
+// file (or point ATTN_REVIEW_PROMPT_FILE elsewhere) to change the review
 // instructions without touching code.
 //
 // Available placeholders, all filled by local-review.ts:
