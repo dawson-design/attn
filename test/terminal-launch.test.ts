@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { buildReviewTerminalScript, shellQuote, terminalScriptFileName } from "../src/terminal-launch";
+import { buildReviewTerminalScript, shellQuote, terminalScriptFileName, terminalText } from "../src/terminal-launch";
 import type { WatchItem } from "../src/types";
 
 function prItem(overrides: Partial<WatchItem> = {}): WatchItem {
@@ -53,6 +53,19 @@ describe("buildReviewTerminalScript", () => {
     expect(script).toContain(shellQuote("acme/api #42: don't'; touch /tmp/pwned; '"));
   });
 
+  // zsh's echo expands backslash escapes even inside single quotes, so a title
+  // could clear the window and print fake output. CI's Linux runner lacks zsh;
+  // the macOS release job runs this.
+  test.skipIf(!Bun.which("zsh"))("prints a hostile title literally, with no escape sequences", () => {
+    const title = "x \\e[2J\\cREST \u001b]0;pwned\u0007";
+    const script = buildReviewTerminalScript(prItem({ title }));
+    const header = script.split("\n").slice(2, 4).join("\n");
+    const result = Bun.spawnSync(["zsh", "-f", "-c", header]);
+    expect(result.stdout.toString()).toBe(
+      "acme/api #42: x \\e[2J\\cREST ]0;pwned\nhttps://ghe.example.com/acme/api/pull/42\n",
+    );
+  });
+
   test("refuses non-PR items and items without a local checkout", () => {
     expect(() => buildReviewTerminalScript(prItem({ kind: "issue_assigned" }))).toThrow();
     expect(() => buildReviewTerminalScript(prItem({ localPath: undefined }))).toThrow();
@@ -71,5 +84,12 @@ describe("terminalScriptFileName", () => {
   test("builds a filesystem-safe .command name", () => {
     expect(terminalScriptFileName(prItem())).toBe("review-api-42.command");
     expect(terminalScriptFileName(prItem({ repoName: "weird repo/name" }))).toBe("review-weird-repo-name-42.command");
+  });
+});
+
+describe("terminalText", () => {
+  test("removes C0, DEL, and C1 control characters and keeps other text", () => {
+    expect(terminalText("a\u001b[2Jb\u0007c\u007fd\u009be\nf\tg")).toBe("a[2Jbcdefg");
+    expect(terminalText("naïve 修正 \\e")).toBe("naïve 修正 \\e");
   });
 });

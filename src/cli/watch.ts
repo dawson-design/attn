@@ -5,6 +5,7 @@ import { loadGithubCache, saveGithubCache, type GithubCache } from "../github-ca
 import { fetchItemDetails } from "../item-details";
 import { loadSnapshot, saveSnapshot } from "../snapshot-cache";
 import { acknowledge, loadState, saveState } from "../state";
+import { terminalText } from "../terminal-launch";
 import type { AppState, Config, Snapshot, WatchItem, WatchItemDetails } from "../types";
 import {
   actionLabel,
@@ -363,7 +364,8 @@ function renderList(options: CliOptions): void {
     const repo = color("blue", `${item.repoName} #${item.number}`);
     const updated = color("dim", formatDate(item.updatedAt).padEnd(14));
     const bot = isDependabotPr(item) ? `${color("green", "[dependabot]")} ` : "";
-    const title = item.lifecycle === "new" || item.lifecycle === "unread" ? color("bold", item.title) : item.title;
+    const plainTitle = terminalText(item.title);
+    const title = item.lifecycle === "new" || item.lifecycle === "unread" ? color("bold", plainTitle) : plainTitle;
     const row = `${marker} ${updated} ${lifecycle} ${kind} ${repo}  ${bot}${title}`;
     writeLine(selected ? highlightLine(row, width) : row, width);
   }
@@ -374,21 +376,25 @@ function renderActions(actionMode: Extract<Mode, { name: "actions" }>): void {
   const item = actionMode.item;
   writeLine(color("blue", `${item.repo} #${item.number}`));
   writeLine(
-    `${color(kindColor(item.kind), kindLabel(item.kind))} | ${color(lifecycleColor(item.lifecycle), item.lifecycle)} | ${formatDate(item.updatedAt)} | ${item.actor}`,
+    `${color(kindColor(item.kind), kindLabel(item.kind))} | ${color(lifecycleColor(item.lifecycle), item.lifecycle)} | ${formatDate(item.updatedAt)} | ${terminalText(item.actor)}`,
   );
-  writeLine(color("bold", item.title), width);
-  writeLine(`${color("dim", "URL:")} ${item.url}`, width);
+  writeLine(color("bold", terminalText(item.title)), width);
+  writeLine(`${color("dim", "URL:")} ${terminalText(item.url)}`, width);
   if (item.localPath) writeLine(`${color("dim", "Local:")} ${item.localPath}`, width);
   if (actionMode.error) writeLine(`${color("red", "Details error:")} ${actionMode.error}`, width);
   if (actionMode.details?.body) {
     writeLine("");
-    for (const line of actionMode.details.body.replace(/\s+/g, " ").match(/.{1,120}/g) || []) writeLine(line, width);
+    for (const line of terminalText(actionMode.details.body.replace(/\s+/g, " ")).match(/.{1,120}/g) || [])
+      writeLine(line, width);
   }
   if (actionMode.details?.comments.length) {
     writeLine("");
     writeLine(color("bold", "Comments:"));
     for (const comment of actionMode.details.comments.slice(-3)) {
-      writeLine(`- ${comment.author}: ${comment.body.replace(/\s+/g, " ").slice(0, 140)}`, width);
+      writeLine(
+        `- ${terminalText(comment.author)}: ${terminalText(comment.body.replace(/\s+/g, " ")).slice(0, 140)}`,
+        width,
+      );
     }
   }
   writeLine("");
