@@ -174,22 +174,38 @@ describe("terminal watcher core", () => {
   });
 
   test("builds agent launch commands for Codex and Claude", async () => {
-    const codex = await buildAgentLaunch(config(), item(), "codex");
+    const codex = await buildAgentLaunch(config(), item(), "codex", "/state/review-prompt-1.md");
     expect(codex.command).toBe("codex");
     expect(codex.args.slice(0, 2)).toEqual(["-C", "/tmp/api"]);
     expect(codex.prompt).toContain("Review pull request acme/api #10 locally.");
 
-    const claude = await buildAgentLaunch(config(), item(), "claude");
+    const claude = await buildAgentLaunch(config(), item(), "claude", "/state/review-prompt-1.md");
     expect(claude.command).toBe("claude");
     expect(claude.cwd).toBe("/tmp/api");
-    expect(claude.args[0]).toContain("Review pull request acme/api #10 locally.");
+    expect(claude.prompt).toContain("Review pull request acme/api #10 locally.");
+  });
+
+  test("keeps the prompt out of the agent's arguments, which ps shows to every account", async () => {
+    for (const agent of ["codex", "claude"] as const) {
+      const launch = await buildAgentLaunch(config(), item(), agent, "/state/review-prompt-1.md");
+      expect(launch.args.join(" ")).not.toContain("acme/api");
+      expect(launch.args).toContain("Read the review instructions in /state/review-prompt-1.md and follow them.");
+    }
+    const claude = await buildAgentLaunch(config(), item(), "claude", "/tmp/attn-review-x/review.md");
+    // Claude may read the prompt's private directory without asking. --add-dir
+    // takes every argument after it, so it must come after the prompt.
+    expect(claude.args).toEqual([
+      "Read the review instructions in /tmp/attn-review-x/review.md and follow them.",
+      "--add-dir",
+      "/tmp/attn-review-x",
+    ]);
   });
 
   test("rejects local review launch without a PR item and local checkout", async () => {
-    await expect(buildAgentLaunch(config(), item({ kind: "issue_assigned" }), "codex")).rejects.toThrow(
+    await expect(buildAgentLaunch(config(), item({ kind: "issue_assigned" }), "codex", "/state/p.md")).rejects.toThrow(
       "only available for PR",
     );
-    await expect(buildAgentLaunch(config(), item({ localPath: undefined }), "codex")).rejects.toThrow(
+    await expect(buildAgentLaunch(config(), item({ localPath: undefined }), "codex", "/state/p.md")).rejects.toThrow(
       "No local checkout path",
     );
   });

@@ -1,8 +1,13 @@
 #!/usr/bin/env bun
 import { spawn } from "node:child_process";
+import { randomBytes } from "node:crypto";
+import { mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { loadConfig } from "../config";
 import { loadGithubCache, saveGithubCache, type GithubCache } from "../github-cache";
 import { fetchItemDetails } from "../item-details";
+import { writePrivateFile } from "../private-file";
 import { loadSnapshot, saveSnapshot } from "../snapshot-cache";
 import { acknowledge, loadState, saveState } from "../state";
 import { terminalText } from "../terminal-launch";
@@ -285,7 +290,11 @@ function openUrl(url: string): void {
 async function launchAgent(item: WatchItem, agent: AgentName, options: CliOptions): Promise<void> {
   let suspended = false;
   try {
-    const launch = await buildAgentLaunch(config, item, agent);
+    // mkdtemp creates the directory 0700.
+    const promptDir = await mkdtemp(join(tmpdir(), "attn-review-"));
+    const promptFile = join(promptDir, `review-${randomBytes(4).toString("hex")}.md`);
+    const launch = await buildAgentLaunch(config, item, agent, promptFile);
+    await writePrivateFile(promptFile, launch.prompt);
     suspendTerminal();
     suspended = true;
     console.log(`\nLaunching ${agent} in ${launch.cwd}\n`);
@@ -297,6 +306,7 @@ async function launchAgent(item: WatchItem, agent: AgentName, options: CliOption
       });
       child.on("close", () => resolve());
     });
+    await rm(promptDir, { recursive: true, force: true });
     resumeTerminal();
     status = `${agent} exited.`;
     mode = { name: "list" };

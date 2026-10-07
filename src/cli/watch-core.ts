@@ -1,3 +1,4 @@
+import { dirname } from "node:path";
 import { fetchWatchItems, type GhJsonRunner } from "../fetch";
 import { pruneCache, type GithubCache } from "../github-cache";
 import { buildAgentReviewPrompt } from "../local-review";
@@ -36,6 +37,8 @@ export interface AgentLaunch {
   args: string[];
   cwd: string;
   prompt: string;
+  // Where the caller writes `prompt` (owner-only) before starting the agent.
+  promptFile: string;
 }
 
 export type WatchAction = "launch_codex" | "launch_claude" | "acknowledge" | "open_url" | "back";
@@ -82,7 +85,18 @@ export function actionLabel(action: WatchAction): string {
   }
 }
 
-export async function buildAgentLaunch(config: Config, item: WatchItem, agent: AgentName): Promise<AgentLaunch> {
+// The prompt names the repo, the PR, and its title, and every local account
+// can read process arguments with `ps`, so the agent gets only the path of an
+// owner-only file that holds the prompt. The caller puts that file in a
+// private temporary directory of its own, which Claude gets with --add-dir so
+// it can read the file without asking; the state directory, which holds the
+// TLS key, stays out of reach.
+export async function buildAgentLaunch(
+  config: Config,
+  item: WatchItem,
+  agent: AgentName,
+  promptFile: string,
+): Promise<AgentLaunch> {
   if (!item.kind.startsWith("pr_")) {
     throw new Error("Local code review launch is only available for PR notifications.");
   }
@@ -91,10 +105,18 @@ export async function buildAgentLaunch(config: Config, item: WatchItem, agent: A
   }
 
   const { prompt } = await buildAgentReviewPrompt(config, item);
+  const instruction = `Read the review instructions in ${promptFile} and follow them.`;
   if (agent === "codex") {
-    return { command: "codex", args: ["-C", item.localPath, prompt], cwd: process.cwd(), prompt };
+    return { command: "codex", args: ["-C", item.localPath, instruction], cwd: process.cwd(), prompt, promptFile };
   }
-  return { command: "claude", args: [prompt], cwd: item.localPath, prompt };
+  return {
+    command: "claude",
+    // --add-dir takes every argument after it, so the prompt comes first.
+    args: [instruction, "--add-dir", dirname(promptFile)],
+    cwd: item.localPath,
+    prompt,
+    promptFile,
+  };
 }
 
 export async function refreshWatcherData(input: RefreshInput): Promise<RefreshOutput> {
